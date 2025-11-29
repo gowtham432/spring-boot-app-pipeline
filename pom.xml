@@ -4,6 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
+    <!-- Parent (Spring Boot) -->
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
@@ -18,16 +19,15 @@
     <description>Demo project for Spring Boot - FIXED VULNERABILITIES</description>
 
     <properties>
+        <!-- Java -->
         <java.version>21</java.version>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
 
-        <!-- pinned versions (used in dependencyManagement) -->
+        <!-- Pinned versions -->
         <version.tomcat.embed>10.1.47</version.tomcat.embed>
-        <version.tomcat.websocket>10.1.47</version.tomcat.websocket>
-
         <version.h2>2.3.232</version.h2>
-        <version.postgresql>42.7.4</version.postgresql>
+        <version.postgresql>42.7.7</version.postgresql>
         <version.mysql.connector>9.1.0</version.mysql.connector>
 
         <version.logback>1.5.19</version.logback>
@@ -42,11 +42,13 @@
         <version.commons-lang3>3.18.0</version.commons-lang3>
 
         <version.snakeyaml>2.3</version.snakeyaml>
+
+        <!-- Spring Framework safe patch (force Spring artifacts when needed) -->
+        <version.spring.framework>6.2.11</version.spring.framework>
     </properties>
 
-    <!-- central dependencies -->
     <dependencies>
-        <!-- Spring Boot Starters -->
+        <!-- Spring Boot Starter -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
@@ -57,7 +59,7 @@
             <artifactId>spring-boot-starter</artifactId>
         </dependency>
 
-        <!-- Database drivers (pinned) -->
+        <!-- Database drivers (runtime) -->
         <dependency>
             <groupId>com.mysql</groupId>
             <artifactId>mysql-connector-j</artifactId>
@@ -72,7 +74,7 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- H2 pinned -->
+        <!-- H2 (pinned) -->
         <dependency>
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
@@ -137,7 +139,7 @@
             <version>${version.snakeyaml}</version>
         </dependency>
 
-        <!-- Logging -->
+        <!-- Logging (Logback pinned) -->
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
@@ -152,23 +154,22 @@
         </dependency>
     </dependencies>
 
-    <!-- Force secure versions for transitive dependencies -->
+    <!-- Force fixed versions (overrides transitive pulls) -->
     <dependencyManagement>
         <dependencies>
-            <!-- Tomcat embed (fix many tomcat CVEs) -->
+            <!-- Tomcat embed -->
             <dependency>
                 <groupId>org.apache.tomcat.embed</groupId>
                 <artifactId>tomcat-embed-core</artifactId>
                 <version>${version.tomcat.embed}</version>
             </dependency>
-
             <dependency>
                 <groupId>org.apache.tomcat.embed</groupId>
                 <artifactId>tomcat-embed-websocket</artifactId>
-                <version>${version.tomcat.websocket}</version>
+                <version>${version.tomcat.embed}</version>
             </dependency>
 
-            <!-- H2 / DB drivers -->
+            <!-- Databases -->
             <dependency>
                 <groupId>com.h2database</groupId>
                 <artifactId>h2</artifactId>
@@ -245,17 +246,55 @@
                 <artifactId>logback-core</artifactId>
                 <version>${version.logback}</version>
             </dependency>
+
+            <!-- Spring Framework explicit overrides (force patched Spring artifacts) -->
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-core</artifactId>
+                <version>${version.spring.framework}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-beans</artifactId>
+                <version>${version.spring.framework}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-context</artifactId>
+                <version>${version.spring.framework}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-web</artifactId>
+                <version>${version.spring.framework}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-webmvc</artifactId>
+                <version>${version.spring.framework}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-expression</artifactId>
+                <version>${version.spring.framework}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework</groupId>
+                <artifactId>spring-aop</artifactId>
+                <version>${version.spring.framework}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
     <build>
         <plugins>
+            <!-- Spring Boot plugin -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
 
-            <!-- Maven Compiler Plugin -->
+            <!-- Compiler plugin -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -265,7 +304,7 @@
                 </configuration>
             </plugin>
 
-            <!-- Maven Surefire Plugin - (optional: skip tests for faster builds) -->
+            <!-- Surefire: optional skip tests for faster builds -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
