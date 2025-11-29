@@ -1,16 +1,10 @@
-# This workflow will build a Java project with Maven, create a Docker image inline, and scan for vulnerabilities
-
-name: Java CI with Maven
+name: Java CI with Security Scanning
 
 on:
   push:
     branches: [ "master" ]
   pull_request:
     branches: [ "master" ]
-
-env:
-  IMAGE_NAME: my-java-app
-  IMAGE_TAG: ${{ github.sha }}
 
 jobs:
   build-and-scan:
@@ -20,277 +14,286 @@ jobs:
       security-events: write
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up JDK 21
-      uses: actions/setup-java@v4
-      with:
-        java-version: '21'
-        distribution: 'temurin'
-        cache: maven
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
 
-    - name: Build with Maven
-      run: mvn -B package --file pom.xml
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@af1da67850ed9a4cedd57bfd976089dd991e2582
 
-    - name: Update dependency graph
-      uses: advanced-security/maven-dependency-submission-action@571e99aab1055c2e71a1e2309b9691de18d6b7d6
+      - name: Make gradlew executable
+        run: chmod +x gradlew
 
-    - name: List built artifacts
-      run: |
-        echo "=== Built JAR files ==="
-        ls -lh target/*.jar
-
-    - name: Create Dockerfile dynamically
-      run: |
-        cat > Dockerfile << 'EOF'
-        # Runtime image for Java application
-        FROM eclipse-temurin:21-jre-jammy
-        
-        WORKDIR /app
-        
-        # Create non-root user
-        RUN groupadd -r appuser && useradd -r -g appuser appuser
-        
-        # Copy the JAR file
-        COPY target/*.jar app.jar
-        
-        # Change ownership
-        RUN chown -R appuser:appuser /app
-        
-        # Switch to non-root user
-        USER appuser
-        
-        # Expose port
-        EXPOSE 8080
-        
-        # Run the application
-        ENTRYPOINT ["java", "-jar", "app.jar"]
-        EOF
-        
-        echo "=== Generated Dockerfile ==="
-        cat Dockerfile
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Build Docker image
-      run: |
-        docker build -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} .
-        docker tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} ${{ env.IMAGE_NAME }}:latest
-        echo "=== Docker images created ==="
-        docker images | grep ${{ env.IMAGE_NAME }}
-
-    - name: Run Trivy vulnerability scanner (table output)
-      uses: aquasecurity/trivy-action@0.28.0
-      with:
-        image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-        format: 'table'
-        exit-code: '0'
-        severity: 'CRITICAL,HIGH,MEDIUM,LOW'
-
-    - name: Run Trivy vulnerability scanner (JSON output)
-      uses: aquasecurity/trivy-action@0.28.0
-      with:
-        image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-        format: 'json'
-        output: 'trivy-results.json'
-        severity: 'CRITICAL,HIGH,MEDIUM,LOW'
-
-    - name: Run Trivy vulnerability scanner (SARIF output)
-      uses: aquasecurity/trivy-action@0.28.0
-      with:
-        image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-        severity: 'CRITICAL,HIGH'
-
-    - name: Create clean vulnerability summary
-      if: always()
-      run: |
-        if [ -f trivy-results.json ]; then
-          echo "Creating clean Trivy vulnerability summary..."
-          
-          cat > trivy-vulnerability-summary.txt << 'EOFMARKER'
-        ========================================
-        TRIVY DOCKER IMAGE SCAN REPORT
-        ========================================
-        EOFMARKER
-          
-          date >> trivy-vulnerability-summary.txt
-          echo "Image: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" >> trivy-vulnerability-summary.txt
-          echo "" >> trivy-vulnerability-summary.txt
-          
-          echo "CRITICAL VULNERABILITIES:" >> trivy-vulnerability-summary.txt
-          echo "=========================" >> trivy-vulnerability-summary.txt
-          cat trivy-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | select(.Severity == "CRITICAL") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)\n  Target: \($target)\n  Description: \(.Description // "N/A")\n  Fixed in: \(.FixedVersion // "No fix available")\n"' >> trivy-vulnerability-summary.txt || echo "None found" >> trivy-vulnerability-summary.txt
-          
-          echo "" >> trivy-vulnerability-summary.txt
-          echo "HIGH VULNERABILITIES:" >> trivy-vulnerability-summary.txt
-          echo "=====================" >> trivy-vulnerability-summary.txt
-          cat trivy-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | select(.Severity == "HIGH") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)\n  Target: \($target)\n  Description: \(.Description // "N/A")\n  Fixed in: \(.FixedVersion // "No fix available")\n"' >> trivy-vulnerability-summary.txt || echo "None found" >> trivy-vulnerability-summary.txt
-          
-          echo "" >> trivy-vulnerability-summary.txt
-          echo "MEDIUM VULNERABILITIES:" >> trivy-vulnerability-summary.txt
-          echo "=======================" >> trivy-vulnerability-summary.txt
-          cat trivy-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[] | select(.Severity == "MEDIUM") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)"' >> trivy-vulnerability-summary.txt || echo "None found" >> trivy-vulnerability-summary.txt
-          
-          echo "" >> trivy-vulnerability-summary.txt
-          echo "LOW VULNERABILITIES:" >> trivy-vulnerability-summary.txt
-          echo "====================" >> trivy-vulnerability-summary.txt
-          cat trivy-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[] | select(.Severity == "LOW") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)"' >> trivy-vulnerability-summary.txt || echo "None found" >> trivy-vulnerability-summary.txt
-          
-          echo "" >> trivy-vulnerability-summary.txt
-          echo "========================================" >> trivy-vulnerability-summary.txt
-          echo "SUMMARY BY SEVERITY:" >> trivy-vulnerability-summary.txt
-          echo "========================================" >> trivy-vulnerability-summary.txt
-          cat trivy-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[] | .Severity' | sort | uniq -c >> trivy-vulnerability-summary.txt
-          
-          # Create CSV
-          echo "Severity,CVE,Package,Installed Version,Fixed Version,Target,Description" > trivy-vulnerabilities.csv
-          cat trivy-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | [.Severity, .VulnerabilityID, .PkgName, .InstalledVersion, (.FixedVersion // "No fix"), $target, (.Description // "N/A" | gsub(","; ";") | gsub("\n"; " ") | .[:100])] | @csv' >> trivy-vulnerabilities.csv
-          
+      - name: Verify vulnerable dependencies are present
+        run: |
+          echo "=== Verifying vulnerable dependencies ==="
+          ./gradlew verifyVulnerableDependencies
           echo ""
-          echo "=== Vulnerability Summary ==="
-          cat trivy-vulnerability-summary.txt
-        fi
+          echo "=== Full dependency tree ==="
+          ./gradlew dependencies --configuration runtimeClasspath | grep -E "jackson-databind|mysql-connector" -A 1 -B 1
 
-    - name: Upload Trivy summary report
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: trivy-vulnerability-summary
-        path: trivy-vulnerability-summary.txt
+      - name: Build application
+        run: ./gradlew clean bootJar -x test
 
-    - name: Upload Trivy CSV report
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: trivy-vulnerabilities-csv
-        path: trivy-vulnerabilities.csv
+      - name: Run OWASP Dependency-Check via Gradle
+        run: |
+          echo "=== Running OWASP Dependency-Check ==="
+          echo "This will download the NVD database (may take 2-3 minutes first time)"
+          ./gradlew dependencyCheckAnalyze --info
+        continue-on-error: true
 
-    - name: Upload Trivy JSON results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: trivy-json-results
-        path: trivy-results.json
+      - name: Display vulnerability summary
+        if: always()
+        run: |
+          echo "=========================================="
+          echo "VULNERABILITY SCAN RESULTS"
+          echo "=========================================="
+          if [ -f build/reports/dependency-check-report.json ]; then
+            echo ""
+            echo "=== CRITICAL Vulnerabilities ==="
+            cat build/reports/dependency-check-report.json | jq -r '.dependencies[]? | select(.vulnerabilities != null) | .fileName as $file | .vulnerabilities[] | select(.severity == "CRITICAL") | "🔴 \(.name) - \(.description[:100])..."' || true
+            echo ""
+            echo "=== HIGH Vulnerabilities ==="
+            cat build/reports/dependency-check-report.json | jq -r '.dependencies[]? | select(.vulnerabilities != null) | .fileName as $file | .vulnerabilities[] | select(.severity == "HIGH") | "🟠 \(.name) - \(.description[:100])..."' || true
+            echo ""
+            echo "=== Vulnerability Count by Severity ==="
+            cat build/reports/dependency-check-report.json | jq -r '.dependencies[]? | select(.vulnerabilities != null) | .vulnerabilities[] | .severity' | sort | uniq -c || true
+            echo ""
+            echo "✅ Full reports available in job artifacts"
+          else
+            echo "❌ No report file found at build/reports/dependency-check-report.json"
+            echo "Checking if report exists elsewhere..."
+            find . -name "dependency-check-report.*" -type f
+          fi
 
-    - name: Upload Trivy SARIF results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: trivy-sarif-results
-        path: trivy-results.sarif
+      - name: Create clean OWASP summary
+        if: always()
+        run: |
+          if [ -f build/reports/dependency-check-report.json ]; then
+            echo "Creating clean OWASP vulnerability summary..."
+            
+            cat > owasp-vulnerability-summary.txt << 'EOFMARKER'
+          ========================================
+          OWASP DEPENDENCY-CHECK REPORT
+          ========================================
+          EOFMARKER
+            
+            date >> owasp-vulnerability-summary.txt
+            echo "" >> owasp-vulnerability-summary.txt
+            
+            echo "CRITICAL VULNERABILITIES:" >> owasp-vulnerability-summary.txt
+            echo "=========================" >> owasp-vulnerability-summary.txt
+            cat build/reports/dependency-check-report.json | jq -r '.dependencies[]? | select(.vulnerabilities != null) | .fileName as $file | .vulnerabilities[] | select(.severity == "CRITICAL") | "• \(.name) in \($file)\n  CVSS: \(.cvssv3.baseScore // .cvssv2.score // "N/A")\n  Description: \(.description)\n"' >> owasp-vulnerability-summary.txt || echo "None found" >> owasp-vulnerability-summary.txt
+            
+            echo "" >> owasp-vulnerability-summary.txt
+            echo "HIGH VULNERABILITIES:" >> owasp-vulnerability-summary.txt
+            echo "=====================" >> owasp-vulnerability-summary.txt
+            cat build/reports/dependency-check-report.json | jq -r '.dependencies[]? | select(.vulnerabilities != null) | .fileName as $file | .vulnerabilities[] | select(.severity == "HIGH") | "• \(.name) in \($file)\n  CVSS: \(.cvssv3.baseScore // .cvssv2.score // "N/A")\n  Description: \(.description)\n"' >> owasp-vulnerability-summary.txt || echo "None found" >> owasp-vulnerability-summary.txt
+            
+            echo "" >> owasp-vulnerability-summary.txt
+            echo "MEDIUM VULNERABILITIES:" >> owasp-vulnerability-summary.txt
+            echo "=======================" >> owasp-vulnerability-summary.txt
+            cat build/reports/dependency-check-report.json | jq -r '.dependencies[]? | select(.vulnerabilities != null) | .fileName as $file | .vulnerabilities[] | select(.severity == "MEDIUM") | "• \(.name) in \($file)"' >> owasp-vulnerability-summary.txt || echo "None found" >> owasp-vulnerability-summary.txt
+            
+            echo "" >> owasp-vulnerability-summary.txt
+            echo "========================================" >> owasp-vulnerability-summary.txt
+            echo "SUMMARY:" >> owasp-vulnerability-summary.txt
+            echo "========================================" >> owasp-vulnerability-summary.txt
+            cat build/reports/dependency-check-report.json | jq -r '.dependencies[]? | select(.vulnerabilities != null) | .vulnerabilities[] | .severity' | sort | uniq -c >> owasp-vulnerability-summary.txt
+            
+            echo "Severity,CVE,Package,CVSS Score,Description" > owasp-vulnerabilities.csv
+            cat build/reports/dependency-check-report.json | jq -r '.dependencies[]? | select(.vulnerabilities != null) | .fileName as $file | .vulnerabilities[] | [.severity, .name, $file, (.cvssv3.baseScore // .cvssv2.score // "N/A"), (.description | gsub(","; ";") | .[:100])] | @csv' >> owasp-vulnerabilities.csv
+            
+            cat owasp-vulnerability-summary.txt
+          fi
 
-    - name: Upload Trivy results to GitHub Security tab
-      if: always()
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: 'trivy-results.sarif'
+      - name: Upload OWASP summary report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-vulnerability-summary
+          path: owasp-vulnerability-summary.txt
+          if-no-files-found: warn
 
-  # Scan filesystem for vulnerabilities (Maven dependencies)
-  trivy-filesystem-scan:
+      - name: Upload OWASP CSV report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-vulnerabilities-csv
+          path: owasp-vulnerabilities.csv
+          if-no-files-found: warn
+
+      - name: Upload HTML Report (Human Readable)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vulnerability-report-html
+          path: build/reports/dependency-check-report.html
+          if-no-files-found: warn
+
+      - name: Upload JSON Report (Machine Readable)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vulnerability-report-json
+          path: build/reports/dependency-check-report.json
+          if-no-files-found: warn
+
+      - name: Upload SARIF Report (GitHub Security)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vulnerability-report-sarif
+          path: build/reports/dependency-check-report.sarif
+          if-no-files-found: warn
+
+      - name: Upload to GitHub Security Tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: build/reports/dependency-check-report.sarif
+        continue-on-error: true
+
+  grype-scan:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up JDK 21
-      uses: actions/setup-java@v4
-      with:
-        java-version: '21'
-        distribution: 'temurin'
-        cache: maven
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
 
-    - name: Build with Maven
-      run: mvn -B package --file pom.xml
+      - name: Make gradlew executable
+        run: chmod +x gradlew
 
-    - name: Run Trivy filesystem scan (table output)
-      uses: aquasecurity/trivy-action@0.28.0
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'table'
-        severity: 'CRITICAL,HIGH,MEDIUM,LOW'
-        scanners: 'vuln'
+      - name: Build JAR
+        run: ./gradlew clean bootJar -x test
 
-    - name: Run Trivy filesystem scan (JSON output)
-      uses: aquasecurity/trivy-action@0.28.0
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'json'
-        output: 'trivy-fs-results.json'
-        severity: 'CRITICAL,HIGH,MEDIUM,LOW'
-        scanners: 'vuln'
+      - name: Install Grype
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
 
-    - name: Run Trivy filesystem scan (SARIF output)
-      uses: aquasecurity/trivy-action@0.28.0
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-fs-results.sarif'
-        severity: 'CRITICAL,HIGH'
-        scanners: 'vuln'
+      - name: Scan with Grype
+        run: |
+          echo "=== Grype Vulnerability Scan ==="
+          grype dir:build/libs -o table
+          echo ""
+          echo "=== Saving full JSON report ==="
+          grype dir:build/libs -o json > grype-results-full.json
 
-    - name: Create filesystem scan summary
-      if: always()
-      run: |
-        if [ -f trivy-fs-results.json ]; then
-          echo "Creating Trivy filesystem scan summary..."
+      - name: Create clean vulnerability summary
+        if: always()
+        run: |
+          echo "=== Creating Clean Vulnerability Report ==="
           
-          cat > trivy-fs-summary.txt << 'EOFMARKER'
-        ========================================
-        TRIVY FILESYSTEM SCAN REPORT
-        ========================================
-        EOFMARKER
+          cat > grype-vulnerability-summary.txt << 'EOFMARKER'
+          ========================================
+          GRYPE VULNERABILITY SCAN REPORT
+          ========================================
+          EOFMARKER
           
-          date >> trivy-fs-summary.txt
-          echo "Scan target: Project dependencies and files" >> trivy-fs-summary.txt
-          echo "" >> trivy-fs-summary.txt
+          date >> grype-vulnerability-summary.txt
+          echo "" >> grype-vulnerability-summary.txt
           
-          echo "CRITICAL VULNERABILITIES:" >> trivy-fs-summary.txt
-          echo "=========================" >> trivy-fs-summary.txt
-          cat trivy-fs-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | select(.Severity == "CRITICAL") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)\n  File: \($target)\n  Description: \(.Description // "N/A")\n"' >> trivy-fs-summary.txt || echo "None found" >> trivy-fs-summary.txt
+          echo "CRITICAL VULNERABILITIES:" >> grype-vulnerability-summary.txt
+          echo "=========================" >> grype-vulnerability-summary.txt
+          cat grype-results-full.json | jq -r '.matches[]? | select(.vulnerability.severity == "Critical") | (if (.relatedVulnerabilities | length > 0) then (.relatedVulnerabilities[] | select(.id | startswith("CVE")) | .id) // .vulnerability.id else .vulnerability.id end) as $cve_id | "• \($cve_id) - \(.artifact.name)@\(.artifact.version)\n  Description: \(.vulnerability.description // "N/A")\n  Fixed in: \(.vulnerability.fix.versions[0] // "No fix available")\n"' >> grype-vulnerability-summary.txt || echo "None found" >> grype-vulnerability-summary.txt
           
-          echo "" >> trivy-fs-summary.txt
-          echo "HIGH VULNERABILITIES:" >> trivy-fs-summary.txt
-          echo "=====================" >> trivy-fs-summary.txt
-          cat trivy-fs-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | select(.Severity == "HIGH") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)\n  File: \($target)\n  Description: \(.Description // "N/A")\n"' >> trivy-fs-summary.txt || echo "None found" >> trivy-fs-summary.txt
+          echo "" >> grype-vulnerability-summary.txt
+          echo "HIGH VULNERABILITIES:" >> grype-vulnerability-summary.txt
+          echo "=====================" >> grype-vulnerability-summary.txt
+          cat grype-results-full.json | jq -r '.matches[]? | select(.vulnerability.severity == "High") | (if (.relatedVulnerabilities | length > 0) then (.relatedVulnerabilities[] | select(.id | startswith("CVE")) | .id) // .vulnerability.id else .vulnerability.id end) as $cve_id | "• \($cve_id) - \(.artifact.name)@\(.artifact.version)\n  Description: \(.vulnerability.description // "N/A")\n  Fixed in: \(.vulnerability.fix.versions[0] // "No fix available")\n"' >> grype-vulnerability-summary.txt || echo "None found" >> grype-vulnerability-summary.txt
           
-          echo "" >> trivy-fs-summary.txt
-          echo "========================================" >> trivy-fs-summary.txt
-          echo "SUMMARY:" >> trivy-fs-summary.txt
-          echo "========================================" >> trivy-fs-summary.txt
-          cat trivy-fs-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[] | .Severity' | sort | uniq -c >> trivy-fs-summary.txt
+          echo "" >> grype-vulnerability-summary.txt
+          echo "MEDIUM VULNERABILITIES:" >> grype-vulnerability-summary.txt
+          echo "=======================" >> grype-vulnerability-summary.txt
+          cat grype-results-full.json | jq -r '.matches[]? | select(.vulnerability.severity == "Medium") | (if (.relatedVulnerabilities | length > 0) then (.relatedVulnerabilities[] | select(.id | startswith("CVE")) | .id) // .vulnerability.id else .vulnerability.id end) as $cve_id | "• \($cve_id) - \(.artifact.name)@\(.artifact.version)"' >> grype-vulnerability-summary.txt || echo "None found" >> grype-vulnerability-summary.txt
           
-          cat trivy-fs-summary.txt
-        fi
+          echo "" >> grype-vulnerability-summary.txt
+          echo "LOW VULNERABILITIES:" >> grype-vulnerability-summary.txt
+          echo "====================" >> grype-vulnerability-summary.txt
+          cat grype-results-full.json | jq -r '.matches[]? | select(.vulnerability.severity == "Low") | (if (.relatedVulnerabilities | length > 0) then (.relatedVulnerabilities[] | select(.id | startswith("CVE")) | .id) // .vulnerability.id else .vulnerability.id end) as $cve_id | "• \($cve_id) - \(.artifact.name)@\(.artifact.version)"' >> grype-vulnerability-summary.txt || echo "None found" >> grype-vulnerability-summary.txt
+          
+          echo "" >> grype-vulnerability-summary.txt
+          echo "========================================" >> grype-vulnerability-summary.txt
+          echo "SUMMARY BY SEVERITY:" >> grype-vulnerability-summary.txt
+          echo "========================================" >> grype-vulnerability-summary.txt
+          cat grype-results-full.json | jq -r '.matches[]? | .vulnerability.severity' | sort | uniq -c >> grype-vulnerability-summary.txt
+          
+          echo "Severity,CVE,GHSA,Package,Version,Fixed Version,Description" > grype-vulnerabilities.csv
+          cat grype-results-full.json | jq -r '.matches[]? | (if (.relatedVulnerabilities | length > 0) then ([.relatedVulnerabilities[] | select(.id | startswith("CVE")) | .id] | join("; ")) else "" end) as $cve_ids | (.vulnerability.id | if (. | startswith("GHSA")) then . else "" end) as $ghsa_id | (if ($cve_ids == "") then .vulnerability.id else $cve_ids end) as $primary_id | [.vulnerability.severity, $cve_ids, $ghsa_id, .artifact.name, .artifact.version, (.vulnerability.fix.versions[0] // "No fix"), (.vulnerability.description // "N/A" | gsub(","; ";") | gsub("\n"; " "))] | @csv' >> grype-vulnerabilities.csv
 
-    - name: Upload filesystem scan summary
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: trivy-filesystem-summary
-        path: trivy-fs-summary.txt
+      - name: Display clean summary in logs
+        if: always()
+        run: |
+          echo "=== Clean Vulnerability Summary (CVE Format) ==="
+          cat grype-vulnerability-summary.txt
+          echo ""
+          echo "=== CVE to GHSA Mapping ==="
+          cat grype-results-full.json | jq -r '.matches[]? | select(.relatedVulnerabilities | length > 0) | .vulnerability.id as $ghsa | .relatedVulnerabilities[] | select(.id | startswith("CVE")) | "\(.id) → \($ghsa)"' | sort -u || echo "No mappings found"
 
-    - name: Upload filesystem scan SARIF
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: trivy-filesystem-sarif
-        path: trivy-fs-results.sarif
+      - name: Upload clean summary report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grype-vulnerability-summary
+          path: grype-vulnerability-summary.txt
 
-    - name: Upload filesystem results to GitHub Security
-      if: always()
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: 'trivy-fs-results.sarif'
-        category: 'trivy-filesystem'
-      continue-on-error: true
+      - name: Upload CSV report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grype-vulnerabilities-csv
+          path: grype-vulnerabilities.csv
+
+      - name: Upload full JSON (optional)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grype-full-json-report
+          path: grype-results-full.json
+
+  dependency-tree:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Generate dependency tree report
+        run: |
+          echo "=== Runtime Dependency Tree ==="
+          ./gradlew dependencies --configuration runtimeClasspath > dependency-tree.txt
+          cat dependency-tree.txt
+          echo ""
+          echo "=== Vulnerable Dependencies Found ==="
+          grep -E "jackson-databind.*2.9.8|mysql-connector-java.*5.1.44" dependency-tree.txt || echo "⚠️  Vulnerable versions not found in tree!"
+
+      - name: Upload dependency tree
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-tree
+          path: dependency-tree.txt
