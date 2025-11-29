@@ -13,7 +13,7 @@ env:
   IMAGE_TAG: ${{ github.sha }}
 
 jobs:
-  build:
+  build-and-scan:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -136,6 +136,11 @@ jobs:
           cat trivy-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[] | select(.Severity == "MEDIUM") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)"' >> trivy-vulnerability-summary.txt || echo "None found" >> trivy-vulnerability-summary.txt
           
           echo "" >> trivy-vulnerability-summary.txt
+          echo "LOW VULNERABILITIES:" >> trivy-vulnerability-summary.txt
+          echo "====================" >> trivy-vulnerability-summary.txt
+          cat trivy-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[] | select(.Severity == "LOW") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)"' >> trivy-vulnerability-summary.txt || echo "None found" >> trivy-vulnerability-summary.txt
+          
+          echo "" >> trivy-vulnerability-summary.txt
           echo "========================================" >> trivy-vulnerability-summary.txt
           echo "SUMMARY BY SEVERITY:" >> trivy-vulnerability-summary.txt
           echo "========================================" >> trivy-vulnerability-summary.txt
@@ -145,6 +150,8 @@ jobs:
           echo "Severity,CVE,Package,Installed Version,Fixed Version,Target,Description" > trivy-vulnerabilities.csv
           cat trivy-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | [.Severity, .VulnerabilityID, .PkgName, .InstalledVersion, (.FixedVersion // "No fix"), $target, (.Description // "N/A" | gsub(","; ";") | gsub("\n"; " ") | .[:100])] | @csv' >> trivy-vulnerabilities.csv
           
+          echo ""
+          echo "=== Vulnerability Summary ==="
           cat trivy-vulnerability-summary.txt
         fi
 
@@ -182,8 +189,8 @@ jobs:
       with:
         sarif_file: 'trivy-results.sarif'
 
-  # Optional: OWASP Dependency-Check on Maven dependencies
-  owasp-maven-check:
+  # Scan filesystem for vulnerabilities (Maven dependencies)
+  trivy-filesystem-scan:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -200,40 +207,90 @@ jobs:
         distribution: 'temurin'
         cache: maven
 
-    - name: Run OWASP Dependency-Check
-      run: |
-        mvn org.owasp:dependency-check-maven:10.0.4:check \
-          -Dformat=ALL \
-          -DfailBuildOnCVSS=0
-      continue-on-error: true
+    - name: Build with Maven
+      run: mvn -B package --file pom.xml
 
-    - name: Display OWASP findings
+    - name: Run Trivy filesystem scan (table output)
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'table'
+        severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+        scanners: 'vuln'
+
+    - name: Run Trivy filesystem scan (JSON output)
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'json'
+        output: 'trivy-fs-results.json'
+        severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+        scanners: 'vuln'
+
+    - name: Run Trivy filesystem scan (SARIF output)
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-fs-results.sarif'
+        severity: 'CRITICAL,HIGH'
+        scanners: 'vuln'
+
+    - name: Create filesystem scan summary
       if: always()
       run: |
-        if [ -f target/dependency-check-report.json ]; then
-          echo "=== OWASP Dependency-Check Findings ==="
-          cat target/dependency-check-report.json | jq -r '.dependencies[]? | select(.vulnerabilities != null) | .fileName as $file | .vulnerabilities[] | "[\(.severity)] \(.name) in \($file)"' | sort || true
+        if [ -f trivy-fs-results.json ]; then
+          echo "Creating Trivy filesystem scan summary..."
+          
+          cat > trivy-fs-summary.txt << 'EOFMARKER'
+        ========================================
+        TRIVY FILESYSTEM SCAN REPORT
+        ========================================
+        EOFMARKER
+          
+          date >> trivy-fs-summary.txt
+          echo "Scan target: Project dependencies and files" >> trivy-fs-summary.txt
+          echo "" >> trivy-fs-summary.txt
+          
+          echo "CRITICAL VULNERABILITIES:" >> trivy-fs-summary.txt
+          echo "=========================" >> trivy-fs-summary.txt
+          cat trivy-fs-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | select(.Severity == "CRITICAL") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)\n  File: \($target)\n  Description: \(.Description // "N/A")\n"' >> trivy-fs-summary.txt || echo "None found" >> trivy-fs-summary.txt
+          
+          echo "" >> trivy-fs-summary.txt
+          echo "HIGH VULNERABILITIES:" >> trivy-fs-summary.txt
+          echo "=====================" >> trivy-fs-summary.txt
+          cat trivy-fs-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | select(.Severity == "HIGH") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)\n  File: \($target)\n  Description: \(.Description // "N/A")\n"' >> trivy-fs-summary.txt || echo "None found" >> trivy-fs-summary.txt
+          
+          echo "" >> trivy-fs-summary.txt
+          echo "========================================" >> trivy-fs-summary.txt
+          echo "SUMMARY:" >> trivy-fs-summary.txt
+          echo "========================================" >> trivy-fs-summary.txt
+          cat trivy-fs-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[] | .Severity' | sort | uniq -c >> trivy-fs-summary.txt
+          
+          cat trivy-fs-summary.txt
         fi
 
-    - name: Upload OWASP HTML report
+    - name: Upload filesystem scan summary
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: owasp-maven-report-html
-        path: target/dependency-check-report.html
-        if-no-files-found: warn
+        name: trivy-filesystem-summary
+        path: trivy-fs-summary.txt
 
-    - name: Upload OWASP SARIF report
+    - name: Upload filesystem scan SARIF
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: owasp-maven-report-sarif
-        path: target/dependency-check-report.sarif
-        if-no-files-found: warn
+        name: trivy-filesystem-sarif
+        path: trivy-fs-results.sarif
 
-    - name: Upload OWASP results to GitHub Security
+    - name: Upload filesystem results to GitHub Security
       if: always()
       uses: github/codeql-action/upload-sarif@v3
       with:
-        sarif_file: target/dependency-check-report.sarif
+        sarif_file: 'trivy-fs-results.sarif'
+        category: 'trivy-filesystem'
       continue-on-error: true
