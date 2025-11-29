@@ -4,9 +4,9 @@ name: Java CI with Maven
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "pavan1" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "pavan1" ]
 
 env:
   IMAGE_NAME: ghcr.io/gowtham432/spring-boot-app-pipeline
