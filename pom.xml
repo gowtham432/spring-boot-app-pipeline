@@ -5,14 +5,14 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.2.2</version>
+		<version>3.4.1</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.example</groupId>
 	<artifactId>demo</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>demo</name>
-	<description>Demo project for Spring Boot with vulnerable dependencies for security testing</description>
+	<description>Demo project for Spring Boot - FIXED VULNERABILITIES</description>
 	<url/>
 	<licenses>
 		<license/>
@@ -43,87 +43,95 @@
 			<artifactId>spring-boot-starter</artifactId>
 		</dependency>
 
-		<!-- ❗ VULNERABLE: MySQL Connector 5.1.44 (Multiple HIGH CVEs) -->
-		<!-- CVE-2018-3258, CVE-2019-2692, CVE-2020-2875, CVE-2021-22569 -->
+		<!-- ✅ FIXED: MySQL Connector (was 5.1.44, now 9.1.0) -->
+		<!-- Fixed CVE-2018-3258, CVE-2022-21363, CVE-2023-22102 -->
 		<dependency>
-			<groupId>mysql</groupId>
-			<artifactId>mysql-connector-java</artifactId>
-			<version>5.1.44</version>
+			<groupId>com.mysql</groupId>
+			<artifactId>mysql-connector-j</artifactId>
+			<version>9.1.0</version>
 			<scope>runtime</scope>
 		</dependency>
 
-		<!-- ❗ VULNERABLE: Commons Collections 3.2.1 (CRITICAL CVE-2015-7501) -->
-		<!-- Remote code execution via deserialization -->
+		<!-- ✅ FIXED: Commons Collections (was 3.2.1, now 3.2.2) -->
+		<!-- Fixed CVE-2015-7501, CVE-2015-6420 -->
 		<dependency>
 			<groupId>commons-collections</groupId>
 			<artifactId>commons-collections</artifactId>
-			<version>3.2.1</version>
+			<version>3.2.2</version>
 		</dependency>
 
-		<!-- ❗ VULNERABLE: Commons IO 2.6 (MEDIUM CVE-2021-29425) -->
-		<!-- Path traversal vulnerability -->
+		<!-- ✅ FIXED: Commons IO (was 2.6, now 2.18.0) -->
+		<!-- Fixed CVE-2024-47554, CVE-2021-29425 -->
 		<dependency>
 			<groupId>commons-io</groupId>
 			<artifactId>commons-io</artifactId>
-			<version>2.6</version>
+			<version>2.18.0</version>
 		</dependency>
 
-		<!-- ❗ VULNERABLE: Commons Compress 1.18 (HIGH CVE-2019-12402) -->
-		<!-- Denial of service via infinite loop -->
+		<!-- ✅ FIXED: Commons Compress (was 1.18, now 1.27.1) -->
+		<!-- Fixed CVE-2024-25710, CVE-2021-35515, CVE-2021-35516, CVE-2021-35517, CVE-2021-36090 -->
 		<dependency>
 			<groupId>org.apache.commons</groupId>
 			<artifactId>commons-compress</artifactId>
-			<version>1.18</version>
+			<version>1.27.1</version>
 		</dependency>
 
-		<!-- ❗ VULNERABLE: Commons Text 1.6 (HIGH CVE-2022-42889) -->
-		<!-- Text4Shell - Remote code execution -->
+		<!-- ✅ FIXED: Commons Text (was 1.6, now 1.13.0) -->
+		<!-- Fixed CVE-2022-42889 (Text4Shell) -->
 		<dependency>
 			<groupId>org.apache.commons</groupId>
 			<artifactId>commons-text</artifactId>
-			<version>1.6</version>
+			<version>1.13.0</version>
 		</dependency>
 
-		<!-- ❗ VULNERABLE: Nimbus JOSE JWT 7.9 (Multiple MEDIUM/HIGH CVEs) -->
-		<!-- CVE-2019-17195, CVE-2021-27568 -->
+		<!-- ✅ FIXED: Commons Lang3 (was 3.13.0, now 3.18.0) -->
+		<!-- Fixed CVE-2025-48924 -->
+		<dependency>
+			<groupId>org.apache.commons</groupId>
+			<artifactId>commons-lang3</artifactId>
+			<version>3.18.0</version>
+		</dependency>
+
+		<!-- ✅ FIXED: Nimbus JOSE JWT (was 7.9, now 10.0.2) -->
+		<!-- Fixed CVE-2025-53864, CVE-2025-52428 -->
 		<dependency>
 			<groupId>com.nimbusds</groupId>
 			<artifactId>nimbus-jose-jwt</artifactId>
-			<version>7.9</version>
+			<version>10.0.2</version>
 		</dependency>
 
-		<!-- ❗ VULNERABLE: SnakeYAML 1.26 (HIGH CVE-2022-1471) -->
-		<!-- Deserialization of untrusted data -->
+		<!-- ✅ FIXED: SnakeYAML (was 1.26, now 2.3) -->
+		<!-- Fixed CVE-2022-1471, CVE-2022-25857, CVE-2022-38749, CVE-2022-38750, etc. -->
 		<dependency>
 			<groupId>org.yaml</groupId>
 			<artifactId>snakeyaml</artifactId>
-			<version>1.26</version>
+			<version>2.3</version>
 		</dependency>
 
-		<!-- ❗ VULNERABLE: PostgreSQL JDBC 42.2.5 (HIGH CVE-2022-31197) -->
-		<!-- SQL injection via ResultSet.refreshRow() -->
+		<!-- ✅ FIXED: PostgreSQL JDBC (was 42.2.5, now 42.7.4) -->
+		<!-- Fixed CVE-2022-41946, CVE-2022-21724, CVE-2024-1597, CVE-2020-13692 -->
 		<dependency>
 			<groupId>org.postgresql</groupId>
 			<artifactId>postgresql</artifactId>
-			<version>42.2.5</version>
+			<version>42.7.4</version>
 			<scope>runtime</scope>
 		</dependency>
 
-		<!-- ❗ VULNERABLE: H2 Database 1.4.199 (CRITICAL CVE-2022-23221) -->
-		<!-- Remote code execution -->
+		<!-- ✅ FIXED: H2 Database (was 1.4.199, now 2.3.232) -->
+		<!-- Fixed CVE-2021-42392, CVE-2022-23221, CVE-2021-23463 -->
 		<dependency>
 			<groupId>com.h2database</groupId>
 			<artifactId>h2</artifactId>
-			<version>1.4.199</version>
+			<version>2.3.232</version>
 			<scope>runtime</scope>
 		</dependency>
 
-		<!-- ❗ VULNERABLE: Gson 2.8.5 (MEDIUM CVE-2022-25647) -->
-		<!-- Denial of service -->
+		<!-- ✅ FIXED: Gson (was 2.8.5, now 2.11.0) -->
+		<!-- Fixed CVE-2022-25647 -->
 		<dependency>
 			<groupId>com.google.code.gson</groupId>
 			<artifactId>gson</artifactId>
-			<version>2.8.5</version>
+			<version>2.11.0</version>
 		</dependency>
 
 		<!-- Test dependencies -->
@@ -133,6 +141,33 @@
 			<scope>test</scope>
 		</dependency>
 	</dependencies>
+
+	<!-- Override Spring Boot's managed dependency versions to use secure versions -->
+	<dependencyManagement>
+		<dependencies>
+			<!-- Force latest secure versions -->
+			<dependency>
+				<groupId>org.yaml</groupId>
+				<artifactId>snakeyaml</artifactId>
+				<version>2.3</version>
+			</dependency>
+			<dependency>
+				<groupId>com.google.code.gson</groupId>
+				<artifactId>gson</artifactId>
+				<version>2.11.0</version>
+			</dependency>
+			<dependency>
+				<groupId>org.postgresql</groupId>
+				<artifactId>postgresql</artifactId>
+				<version>42.7.4</version>
+			</dependency>
+			<dependency>
+				<groupId>com.h2database</groupId>
+				<artifactId>h2</artifactId>
+				<version>2.3.232</version>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 
 	<build>
 		<plugins>
