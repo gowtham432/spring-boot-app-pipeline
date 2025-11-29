@@ -1,10 +1,4 @@
-# This workflow will build a Java project with Maven, and cache/restore any dependencies to improve the workflow execution time
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-java-with-maven
-
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
+# This workflow will build a Java project with Maven, create a Docker image inline, and scan for vulnerabilities
 
 name: Java CI with Maven
 
@@ -14,33 +8,232 @@ on:
   pull_request:
     branches: [ "master" ]
 
+env:
+  IMAGE_NAME: my-java-app
+  IMAGE_TAG: ${{ github.sha }}
+
 jobs:
   build:
-
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
         cache: maven
+
     - name: Build with Maven
       run: mvn -B package --file pom.xml
 
-    # Optional: Uploads the full dependency graph to GitHub to improve the quality of Dependabot alerts this repository can receive
     - name: Update dependency graph
       uses: advanced-security/maven-dependency-submission-action@571e99aab1055c2e71a1e2309b9691de18d6b7d6
 
-    # Build a Docker image (required for scanning). Requires a Dockerfile at repository root.
+    - name: List built artifacts
+      run: |
+        echo "=== Built JAR files ==="
+        ls -lh target/*.jar
+
+    - name: Create Dockerfile dynamically
+      run: |
+        cat > Dockerfile << 'EOF'
+        # Runtime image for Java application
+        FROM eclipse-temurin:21-jre-jammy
+        
+        WORKDIR /app
+        
+        # Create non-root user
+        RUN groupadd -r appuser && useradd -r -g appuser appuser
+        
+        # Copy the JAR file
+        COPY target/*.jar app.jar
+        
+        # Change ownership
+        RUN chown -R appuser:appuser /app
+        
+        # Switch to non-root user
+        USER appuser
+        
+        # Expose port
+        EXPOSE 8080
+        
+        # Run the application
+        ENTRYPOINT ["java", "-jar", "app.jar"]
+        EOF
+        
+        echo "=== Generated Dockerfile ==="
+        cat Dockerfile
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
     - name: Build Docker image
       run: |
-        docker build -t ghcr.io/gowtham432/spring-boot-app-pipeline:${{ github.sha }} .
+        docker build -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} .
+        docker tag ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} ${{ env.IMAGE_NAME }}:latest
+        echo "=== Docker images created ==="
+        docker images | grep ${{ env.IMAGE_NAME }}
 
-    # Scan the built image with Trivy
-    - name: Scan for vulnerabilities with Trivy
-      uses: aquasecurity/trivy-action@v0.11.0
+    - name: Run Trivy vulnerability scanner (table output)
+      uses: aquasecurity/trivy-action@0.28.0
       with:
-        image-ref: "ghcr.io/gowtham432/spring-boot-app-pipeline:${{ github.sha }}"
+        image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        format: 'table'
+        exit-code: '0'
+        severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+
+    - name: Run Trivy vulnerability scanner (JSON output)
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        format: 'json'
+        output: 'trivy-results.json'
+        severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+
+    - name: Run Trivy vulnerability scanner (SARIF output)
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        severity: 'CRITICAL,HIGH'
+
+    - name: Create clean vulnerability summary
+      if: always()
+      run: |
+        if [ -f trivy-results.json ]; then
+          echo "Creating clean Trivy vulnerability summary..."
+          
+          cat > trivy-vulnerability-summary.txt << 'EOFMARKER'
+        ========================================
+        TRIVY DOCKER IMAGE SCAN REPORT
+        ========================================
+        EOFMARKER
+          
+          date >> trivy-vulnerability-summary.txt
+          echo "Image: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" >> trivy-vulnerability-summary.txt
+          echo "" >> trivy-vulnerability-summary.txt
+          
+          echo "CRITICAL VULNERABILITIES:" >> trivy-vulnerability-summary.txt
+          echo "=========================" >> trivy-vulnerability-summary.txt
+          cat trivy-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | select(.Severity == "CRITICAL") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)\n  Target: \($target)\n  Description: \(.Description // "N/A")\n  Fixed in: \(.FixedVersion // "No fix available")\n"' >> trivy-vulnerability-summary.txt || echo "None found" >> trivy-vulnerability-summary.txt
+          
+          echo "" >> trivy-vulnerability-summary.txt
+          echo "HIGH VULNERABILITIES:" >> trivy-vulnerability-summary.txt
+          echo "=====================" >> trivy-vulnerability-summary.txt
+          cat trivy-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | select(.Severity == "HIGH") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)\n  Target: \($target)\n  Description: \(.Description // "N/A")\n  Fixed in: \(.FixedVersion // "No fix available")\n"' >> trivy-vulnerability-summary.txt || echo "None found" >> trivy-vulnerability-summary.txt
+          
+          echo "" >> trivy-vulnerability-summary.txt
+          echo "MEDIUM VULNERABILITIES:" >> trivy-vulnerability-summary.txt
+          echo "=======================" >> trivy-vulnerability-summary.txt
+          cat trivy-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[] | select(.Severity == "MEDIUM") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)"' >> trivy-vulnerability-summary.txt || echo "None found" >> trivy-vulnerability-summary.txt
+          
+          echo "" >> trivy-vulnerability-summary.txt
+          echo "========================================" >> trivy-vulnerability-summary.txt
+          echo "SUMMARY BY SEVERITY:" >> trivy-vulnerability-summary.txt
+          echo "========================================" >> trivy-vulnerability-summary.txt
+          cat trivy-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[] | .Severity' | sort | uniq -c >> trivy-vulnerability-summary.txt
+          
+          # Create CSV
+          echo "Severity,CVE,Package,Installed Version,Fixed Version,Target,Description" > trivy-vulnerabilities.csv
+          cat trivy-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | [.Severity, .VulnerabilityID, .PkgName, .InstalledVersion, (.FixedVersion // "No fix"), $target, (.Description // "N/A" | gsub(","; ";") | gsub("\n"; " ") | .[:100])] | @csv' >> trivy-vulnerabilities.csv
+          
+          cat trivy-vulnerability-summary.txt
+        fi
+
+    - name: Upload Trivy summary report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: trivy-vulnerability-summary
+        path: trivy-vulnerability-summary.txt
+
+    - name: Upload Trivy CSV report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: trivy-vulnerabilities-csv
+        path: trivy-vulnerabilities.csv
+
+    - name: Upload Trivy JSON results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: trivy-json-results
+        path: trivy-results.json
+
+    - name: Upload Trivy SARIF results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: trivy-sarif-results
+        path: trivy-results.sarif
+
+    - name: Upload Trivy results to GitHub Security tab
+      if: always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  # Optional: OWASP Dependency-Check on Maven dependencies
+  owasp-maven-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: Run OWASP Dependency-Check
+      run: |
+        mvn org.owasp:dependency-check-maven:10.0.4:check \
+          -Dformat=ALL \
+          -DfailBuildOnCVSS=0
+      continue-on-error: true
+
+    - name: Display OWASP findings
+      if: always()
+      run: |
+        if [ -f target/dependency-check-report.json ]; then
+          echo "=== OWASP Dependency-Check Findings ==="
+          cat target/dependency-check-report.json | jq -r '.dependencies[]? | select(.vulnerabilities != null) | .fileName as $file | .vulnerabilities[] | "[\(.severity)] \(.name) in \($file)"' | sort || true
+        fi
+
+    - name: Upload OWASP HTML report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: owasp-maven-report-html
+        path: target/dependency-check-report.html
+        if-no-files-found: warn
+
+    - name: Upload OWASP SARIF report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: owasp-maven-report-sarif
+        path: target/dependency-check-report.sarif
+        if-no-files-found: warn
+
+    - name: Upload OWASP results to GitHub Security
+      if: always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: target/dependency-check-report.sarif
+      continue-on-error: true
