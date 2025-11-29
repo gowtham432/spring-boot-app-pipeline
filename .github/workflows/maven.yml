@@ -33,3 +33,14 @@ jobs:
     # Optional: Uploads the full dependency graph to GitHub to improve the quality of Dependabot alerts this repository can receive
     - name: Update dependency graph
       uses: advanced-security/maven-dependency-submission-action@571e99aab1055c2e71a1e2309b9691de18d6b7d6
+
+    # Build a Docker image (required for scanning). Requires a Dockerfile at repository root.
+    - name: Build Docker image
+      run: |
+        docker build -t ghcr.io/gowtham432/spring-boot-app-pipeline:${{ github.sha }} .
+
+    # Scan the built image with Trivy
+    - name: Scan for vulnerabilities with Trivy
+      uses: aquasecurity/trivy-action@v0.11.0
+      with:
+        image-ref: "ghcr.io/gowtham432/spring-boot-app-pipeline:${{ github.sha }}"
