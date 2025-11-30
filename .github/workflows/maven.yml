@@ -57,7 +57,7 @@ jobs:
       with:
         scan-type: 'fs'
         scan-ref: '.'
-        format: 'html'
+        format: 'template'
         template: '@/contrib/html.tpl'
         output: 'trivy-results-fs.html'
         severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
