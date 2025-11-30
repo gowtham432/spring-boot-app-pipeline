@@ -356,18 +356,23 @@ jobs:
         if: steps.check-vulns.outputs.vulnerabilities-found == 'true'
         run: |
           VULNERABILITY_REPORT=$(cat trivy-maven-results.json | jq -c .)
+          FILE_STRUCTURE_ESCAPED=$(echo "${{ steps.repo-structure.outputs.file_structure }}" | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
+          DEPENDENCIES_ESCAPED=$(echo "${{ steps.repo-structure.outputs.dependencies }}" | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
 
           curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
             -H "Content-Type: application/json" \
-            -d "{
-              \"repository\": \"${{ github.repository }}\",
-              \"commit_sha\": \"${{ github.sha }}\",
-              \"branch_ref\": \"${{ github.ref }}\",
-              \"repository_structure\": \"${{ steps.repo-structure.outputs.file_structure }}\",
-              \"dependencies\": \"${{ steps.repo-structure.outputs.dependencies }}\",
-              \"repository_url\": \"${{ github.server_url }}/${{ github.repository }}\",
-              \"actor\": \"${{ github.actor }}\"
-            }"
+            --data @- << EOT
+            {
+              "repository": "${{ github.repository }}",
+              "commit_sha": "${{ github.sha }}",
+              "branch_ref": "${{ github.ref }}",
+              "vulnerability_report": ${VULNERABILITY_REPORT},
+              "repository_structure": "$FILE_STRUCTURE_ESCAPED",
+              "dependencies": "$DEPENDENCIES_ESCAPED",
+              "repository_url": "${{ github.server_url }}/${{ github.repository }}",
+              "actor": "${{ github.actor }}"
+            } 
+          EOT
 
       - name: Create Maven dependencies scan summary
         if: always()
