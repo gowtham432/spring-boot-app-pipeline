@@ -363,7 +363,6 @@ jobs:
               \"repository\": \"${{ github.repository }}\",
               \"commit_sha\": \"${{ github.sha }}\",
               \"branch_ref\": \"${{ github.ref }}\",
-              \"vulnerability_report\": $VULNERABILITY_REPORT,
               \"repository_structure\": \"${{ steps.repo-structure.outputs.file_structure }}\",
               \"dependencies\": \"${{ steps.repo-structure.outputs.dependencies }}\",
               \"repository_url\": \"${{ github.server_url }}/${{ github.repository }}\",
