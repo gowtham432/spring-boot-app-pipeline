@@ -52,6 +52,51 @@ jobs:
           path: trivy-results-fs.json
       continue-on-error: true
 
+    - name: Create Maven dependencies scan summary
+      if: always()
+      run: |
+        if [ -f trivy-results-fs.json ]; then
+          echo "Creating Trivy Maven dependencies scan summary..."
+          
+          cat > trivy-maven-summary.txt << 'EOFMARKER'
+        ========================================
+        TRIVY MAVEN DEPENDENCIES SCAN REPORT
+        ========================================
+        EOFMARKER
+          
+          date >> trivy-maven-summary.txt
+          echo "Scan target: Maven pom.xml and dependencies" >> trivy-maven-summary.txt
+          echo "" >> trivy-maven-summary.txt
+          
+          echo "CRITICAL VULNERABILITIES:" >> trivy-maven-summary.txt
+          echo "=========================" >> trivy-maven-summary.txt
+          cat trivy-results-fs.json| jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | select(.Severity == "CRITICAL") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)\n  File: \($target)\n  Description: \(.Description // "N/A")\n  Fixed in: \(.FixedVersion // "No fix available")\n"' >> trivy-maven-summary.txt || echo "None found" >> trivy-maven-summary.txt
+          
+          echo "" >> trivy-maven-summary.txt
+          echo "HIGH VULNERABILITIES:" >> trivy-maven-summary.txt
+          echo "=====================" >> trivy-maven-summary.txt
+          cat trivy-results-fs.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | select(.Severity == "HIGH") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)\n  File: \($target)\n  Description: \(.Description // "N/A")\n  Fixed in: \(.FixedVersion // "No fix available")\n"' >> trivy-maven-summary.txt || echo "None found" >> trivy-maven-summary.txt
+          
+          echo "" >> trivy-maven-summary.txt
+          echo "========================================" >> trivy-maven-summary.txt
+          echo "SUMMARY:" >> trivy-maven-summary.txt
+          echo "========================================" >> trivy-maven-summary.txt
+          cat trivy-results-fs.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[] | .Severity' | sort | uniq -c >> trivy-maven-summary.txt
+          
+          # Create CSV for Maven dependencies
+          echo "Severity,CVE,Package,Installed Version,Fixed Version,File,Description" > trivy-maven-vulnerabilities.csv
+          cat trivy-results-fs.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | [.Severity, .VulnerabilityID, .PkgName, .InstalledVersion, (.FixedVersion // "No fix"), $target, (.Description // "N/A" | gsub(","; ";") | gsub("\n"; " ") | .[:100])] | @csv' >> trivy-maven-vulnerabilities.csv
+          
+          cat trivy-maven-summary.txt
+        fi
+
+    - name: Upload Maven dependencies scan summary
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: trivy-maven-summary
+        path: trivy-maven-summary.txt
+
     - name: Build Docker image
       run: |
         docker build -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} .
@@ -65,13 +110,71 @@ jobs:
         output: 'trivy-image-scan.json'
         severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
       continue-on-error: true
-      
+
     - name: Upload Vulnerability Scan Results
       uses: actions/upload-artifact@v4
       with:
           name: trivy-report-image
           path: trivy-image-scan.json
       continue-on-error: true
+      
+    - name: Create clean vulnerability summary
+      if: always()
+      run: |
+        if [ -f trivy-image-scan.json ]; then
+          echo "Creating clean Trivy vulnerability summary..."
+          
+          cat > trivy-vulnerability-summary.txt << 'EOFMARKER'
+        ========================================
+        TRIVY DOCKER IMAGE SCAN REPORT
+        ========================================
+        EOFMARKER
+          
+          date >> trivy-vulnerability-summary.txt
+          echo "Image: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" >> trivy-vulnerability-summary.txt
+          echo "" >> trivy-vulnerability-summary.txt
+          
+          echo "CRITICAL VULNERABILITIES:" >> trivy-vulnerability-summary.txt
+          echo "=========================" >> trivy-vulnerability-summary.txt
+          cat trivy-image-scan.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | select(.Severity == "CRITICAL") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)\n  Target: \($target)\n  Description: \(.Description // "N/A")\n  Fixed in: \(.FixedVersion // "No fix available")\n"' >> trivy-vulnerability-summary.txt || echo "None found" >> trivy-vulnerability-summary.txt
+          
+          echo "" >> trivy-vulnerability-summary.txt
+          echo "HIGH VULNERABILITIES:" >> trivy-vulnerability-summary.txt
+          echo "=====================" >> trivy-vulnerability-summary.txt
+          cat trivy-image-scan.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | select(.Severity == "HIGH") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)\n  Target: \($target)\n  Description: \(.Description // "N/A")\n  Fixed in: \(.FixedVersion // "No fix available")\n"' >> trivy-vulnerability-summary.txt || echo "None found" >> trivy-vulnerability-summary.txt
+          
+          echo "" >> trivy-vulnerability-summary.txt
+          echo "MEDIUM VULNERABILITIES:" >> trivy-vulnerability-summary.txt
+          echo "=======================" >> trivy-vulnerability-summary.txt
+          cat trivy-image-scan.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[] | select(.Severity == "MEDIUM") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)"' >> trivy-vulnerability-summary.txt || echo "None found" >> trivy-vulnerability-summary.txt
+          
+          echo "" >> trivy-vulnerability-summary.txt
+          echo "LOW VULNERABILITIES:" >> trivy-vulnerability-summary.txt
+          echo "====================" >> trivy-vulnerability-summary.txt
+          cat trivy-image-scan.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[] | select(.Severity == "LOW") | "• \(.VulnerabilityID) - \(.PkgName)@\(.InstalledVersion)"' >> trivy-vulnerability-summary.txt || echo "None found" >> trivy-vulnerability-summary.txt
+          
+          echo "" >> trivy-vulnerability-summary.txt
+          echo "========================================" >> trivy-vulnerability-summary.txt
+          echo "SUMMARY BY SEVERITY:" >> trivy-vulnerability-summary.txt
+          echo "========================================" >> trivy-vulnerability-summary.txt
+          cat trivy-image-scan.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Vulnerabilities[] | .Severity' | sort | uniq -c >> trivy-vulnerability-summary.txt
+          
+          # Create CSV
+          echo "Severity,CVE,Package,Installed Version,Fixed Version,Target,Description" > trivy-vulnerabilities.csv
+          cat trivy-image-scan.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | [.Severity, .VulnerabilityID, .PkgName, .InstalledVersion, (.FixedVersion // "No fix"), $target, (.Description // "N/A" | gsub(","; ";") | gsub("\n"; " ") | .[:100])] | @csv' >> trivy-vulnerabilities.csv
+          
+          echo ""
+          echo "=== Vulnerability Summary ==="
+          cat trivy-vulnerability-summary.txt
+        fi
+
+    - name: Upload Trivy summary report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: trivy-vulnerability-summary
+        path: trivy-vulnerability-summary.txt
+
 
 
     
