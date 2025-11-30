@@ -52,6 +52,26 @@ jobs:
           path: trivy-results-fs.json
       continue-on-error: true
 
+    - name: Run Trivy filesystem scan on Maven dependencies (html output)
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'html'
+        template: '@/contrib/html.tpl'
+        output: 'trivy-results-fs.html'
+        severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
+        scanners: 'vuln,secret,misconfig,license'
+      continue-on-error: true
+
+      
+    - name: Upload Vulnerability Scan Results
+      uses: actions/upload-artifact@v4
+      with:
+          name: trivy-report-fs-html
+          path: trivy-results-fs.html
+      continue-on-error: true
+
     - name: Create Maven dependencies scan summary
       if: always()
       run: |
