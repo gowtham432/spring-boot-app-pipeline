@@ -94,7 +94,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: trivy-maven-summary
+        name: trivy-report-fs
         path: trivy-maven-summary.txt
 
     - name: Build Docker image
@@ -172,7 +172,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: trivy-vulnerability-summary
+        name: trivy-report-image
         path: trivy-vulnerability-summary.txt
 
 
