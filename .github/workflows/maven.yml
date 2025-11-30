@@ -126,7 +126,7 @@ jobs:
                 }
               ]
             }
-            EOFMARKER
+          EOFMARKER
           fi
 
       - name: Create clean vulnerability summary
@@ -136,10 +136,10 @@ jobs:
             echo "Creating clean Trivy vulnerability summary..."
 
             cat > trivy-vulnerability-summary.txt <<'EOFMARKER'
-            ========================================
-            TRIVY DOCKER IMAGE SCAN REPORT
-            ========================================
-            EOFMARKER
+          ========================================
+          TRIVY DOCKER IMAGE SCAN REPORT
+          ========================================
+          EOFMARKER
 
             date >> trivy-vulnerability-summary.txt
             echo "Image: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}" >> trivy-vulnerability-summary.txt
@@ -362,16 +362,16 @@ jobs:
           curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
             -H "Content-Type: application/json" \
             --data @- << EOT
-            {
-              "repository": "${{ github.repository }}",
-              "commit_sha": "${{ github.sha }}",
-              "branch_ref": "${{ github.ref }}",
-              "vulnerability_report": ${VULNERABILITY_REPORT},
-              "repository_structure": "$FILE_STRUCTURE_ESCAPED",
-              "dependencies": "$DEPENDENCIES_ESCAPED",
-              "repository_url": "${{ github.server_url }}/${{ github.repository }}",
-              "actor": "${{ github.actor }}"
-            } 
+          {
+            "repository": "${{ github.repository }}",
+            "commit_sha": "${{ github.sha }}",
+            "branch_ref": "${{ github.ref }}",
+            "vulnerability_report": ${VULNERABILITY_REPORT},
+            "repository_structure": "$FILE_STRUCTURE_ESCAPED",
+            "dependencies": "$DEPENDENCIES_ESCAPED",
+            "repository_url": "${{ github.server_url }}/${{ github.repository }}",
+            "actor": "${{ github.actor }}"
+          }
           EOT
 
       - name: Create Maven dependencies scan summary
