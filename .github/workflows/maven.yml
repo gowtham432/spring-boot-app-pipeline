@@ -58,7 +58,7 @@ jobs:
         scan-type: 'fs'
         scan-ref: '.'
         format: 'template'
-        template: '@/contrib/html.tpl'
+        template: "@$HOME/.local/bin/trivy-bin/contrib/html.tpl"
         output: 'trivy-results-fs.html'
         severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
         scanners: 'vuln,secret,misconfig,license'
