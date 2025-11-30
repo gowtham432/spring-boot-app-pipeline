@@ -381,10 +381,10 @@ jobs:
             echo "Creating Trivy Maven dependencies scan summary..."
 
             cat > trivy-maven-summary.txt <<'EOFMARKER'
-            ========================================
-            TRIVY MAVEN DEPENDENCIES SCAN REPORT
-            ========================================
-            EOFMARKER
+          ========================================
+          TRIVY MAVEN DEPENDENCIES SCAN REPORT
+          ========================================
+          EOFMARKER
 
             date >> trivy-maven-summary.txt
             echo "Scan target: Maven pom.xml and dependencies" >> trivy-maven-summary.txt
