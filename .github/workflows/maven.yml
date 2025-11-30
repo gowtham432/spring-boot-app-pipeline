@@ -52,20 +52,34 @@ jobs:
           path: trivy-results-fs.json
       continue-on-error: true
 
-    - name: Run Trivy filesystem scan on Maven dependencies (html output)
+# ============================================
+      # Download official Trivy HTML template
+      # ============================================
+    - name: Download Trivy HTML template
+      run: |
+          mkdir -p trivy-template
+          curl -L https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl \
+            -o trivy-template/html.tpl
+
+      # ============================================
+      # Run Trivy filesystem scan using template
+      # ============================================
+    - name: Run Trivy filesystem scan (HTML output)
       uses: aquasecurity/trivy-action@0.28.0
       with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'template'
-        template: "@$HOME/.local/bin/trivy-bin/contrib/html.tpl"
-        output: 'trivy-results-fs.html'
-        severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
-        scanners: 'vuln,secret,misconfig,license'
+          scan-type: fs
+          scan-ref: .
+          format: template
+          template: "@trivy-template/html.tpl"
+          output: trivy-results-fs.html
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          scanners: vuln,secret,misconfig,license
       continue-on-error: true
 
-      
-    - name: Upload Vulnerability Scan Results
+      # ============================================
+      # Upload HTML Report as an Artifact
+      # ============================================
+    - name: Upload Trivy HTML Report
       uses: actions/upload-artifact@v4
       with:
           name: trivy-report-fs-html
