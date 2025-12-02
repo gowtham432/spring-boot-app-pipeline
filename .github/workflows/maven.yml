@@ -133,14 +133,14 @@ jobs:
         find . -type f \( -name "*.java" -o -name "pom.xml" -o -name "*.properties" \) \
           | grep -v target | grep -v .git | head -50 > file-list.txt
 
-        # Write file list as single-line JSON array (more reliable)
-        FILE_LIST_JSON=$(jq -Rs 'split("\n") | map(select(length > 0))' file-list.txt)
-        echo "file_structure=$FILE_LIST_JSON" >> "$GITHUB_OUTPUT"
+        # Write file list as compact single-line JSON (no newlines)
+        FILE_LIST_JSON=$(jq -Rsc 'split("\n") | map(select(length > 0))' file-list.txt)
+        echo "file_structure=${FILE_LIST_JSON}" >> "$GITHUB_OUTPUT"
 
         # Write pom.xml content as base64 (safest for special characters)
         if [ -f "pom.xml" ]; then
           POM_BASE64=$(base64 -w 0 pom.xml)
-          echo "pom_xml_base64=$POM_BASE64" >> "$GITHUB_OUTPUT"
+          echo "pom_xml_base64=${POM_BASE64}" >> "$GITHUB_OUTPUT"
           echo "pom_xml_exists=true" >> "$GITHUB_OUTPUT"
         else
           echo "pom_xml_exists=false" >> "$GITHUB_OUTPUT"
