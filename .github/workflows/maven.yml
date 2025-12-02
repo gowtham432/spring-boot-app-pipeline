@@ -132,22 +132,24 @@ jobs:
         find . -type f \( -name "*.java" -o -name "pom.xml" -o -name "*.properties" \) \
           | grep -v target | grep -v .git | head -50 > file-list.txt
 
+        # Write file structure
         {
-          echo 'file_structure<<DELIMITER_FILE_STRUCTURE'
+          echo "file_structure<<EOF_FILE"
           cat file-list.txt
-          echo 'DELIMITER_FILE_STRUCTURE'
-        } >> $GITHUB_OUTPUT
+          echo "EOF_FILE"
+        } >> "$GITHUB_OUTPUT"
 
-        # Read entire pom.xml file
+        # Write full pom.xml (safe multiline)
         if [ -f "pom.xml" ]; then
           {
-            echo 'pom_xml<<DELIMITER_POM_XML'
+            echo "pom_xml<<EOF_POM"
             cat pom.xml
-            echo 'DELIMITER_POM_XML'
-          } >> $GITHUB_OUTPUT
+            echo "EOF_POM"
+          } >> "$GITHUB_OUTPUT"
         else
-          echo "pom_xml=pom.xml not found" >> $GITHUB_OUTPUT
+          echo "pom_xml=pom.xml not found" >> "$GITHUB_OUTPUT"
         fi
+
 
     - name: Trigger Zapier AI Security Fix
       if: steps.check-vulns.outputs.vulnerabilities-found == 'true'
