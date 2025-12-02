@@ -129,23 +129,23 @@ jobs:
       if: steps.check-vulns.outputs.vulnerabilities-found == 'true'
       id: repo-structure
       run: |
-        # Find files
         find . -type f \( -name "*.java" -o -name "pom.xml" -o -name "*.properties" \) \
           | grep -v target | grep -v .git | head -50 > file-list.txt
 
-        # Write file list as compact single-line JSON (no newlines)
-        FILE_LIST_JSON=$(jq -Rsc 'split("\n") | map(select(length > 0))' file-list.txt)
-        echo "file_structure=${FILE_LIST_JSON}" >> "$GITHUB_OUTPUT"
-
-        # Write pom.xml content as base64 (safest for special characters)
         if [ -f "pom.xml" ]; then
-          POM_BASE64=$(base64 -w 0 pom.xml)
-          echo "pom_xml_base64=${POM_BASE64}" >> "$GITHUB_OUTPUT"
-          echo "pom_xml_exists=true" >> "$GITHUB_OUTPUT"
+          DEPENDENCIES=$(cat pom.xml)
         else
-          echo "pom_xml_exists=false" >> "$GITHUB_OUTPUT"
+          DEPENDENCIES="pom.xml not found."
         fi
-        
+
+        echo "dependencies<<EOF" >> $GITHUB_OUTPUT
+        echo "$DEPENDENCIES" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+        echo "file_structure<<EOF" >> $GITHUB_OUTPUT
+        cat file-list.txt >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
     - name: Trigger Zapier AI Security Fix
       if: steps.check-vulns.outputs.vulnerabilities-found == 'true'
       run: |
@@ -157,8 +157,14 @@ jobs:
           -H "Content-Type: application/json" \
           --data @- << EOT
         {
+          "repository": "${{ github.repository }}",
+          "commit_sha": "${{ github.sha }}",
+          "branch_ref": "${{ github.ref }}",
           "vulnerability_report": ${VULNERABILITY_REPORT},
-          "pom_xml": ${POM_XML_CONTENT},
+          "repository_structure": "$FILE_STRUCTURE_ESCAPED",
+          "dependencies": "$DEPENDENCIES_ESCAPED",
+          "repository_url": "${{ github.server_url }}/${{ github.repository }}",
+          "actor": "${{ github.actor }}"
         }
         EOT
 
