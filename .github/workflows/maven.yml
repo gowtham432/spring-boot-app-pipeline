@@ -104,9 +104,3 @@ jobs:
       with:
         name: trivy-vulnerabilities-image.
         path: trivy-vulnerabilities-image.csv
-
-
-
-    
-
-  
