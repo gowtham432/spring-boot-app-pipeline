@@ -42,65 +42,6 @@ jobs:
         scanners: 'vuln,secret,misconfig,license'
       continue-on-error: true
 
-    - name: Check and Set Vulnerability Count for Webhook
-      id: check-vulns
-      run: |
-        if [ -f trivy-maven-results.json ]; then
-          VULN_COUNT=$(jq '
-            [
-              .Results[]?
-              | select(.Vulnerabilities != null)
-              | .Vulnerabilities[]?
-              | select(.Severity == "HIGH" or .Severity == "CRITICAL")
-            ] | length
-          ' trivy-maven-results.json)
-        else
-          VULN_COUNT=0
-        fi
-        if [ "$VULN_COUNT" -gt 0 ]; then
-          echo "vulnerabilities-found=true" >> $GITHUB_OUTPUT
-          echo "vulnerability-count=$VULN_COUNT" >> $GITHUB_OUTPUT
-          echo "Found $VULN_COUNT HIGH/CRITICAL Maven dependency vulnerabilities."
-        else
-          echo "vulnerabilities-found=false" >> $GITHUB_OUTPUT
-          echo "No HIGH/CRITICAL Maven dependency vulnerabilities found."
-        fi
-
-    - name: Get repository structure
-      id: repo-structure
-      if: steps.check-vulns.outputs.vulnerabilities-found == 'true'
-      run: |
-        FILE_STRUCTURE=$(find . -type f -not -path '*/\.*' -not -path '*/node_modules/*' -not -path '*/target/*' | head -100)
-        echo "file_structure<<EOF" >> $GITHUB_OUTPUT
-        echo "$FILE_STRUCTURE" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
-        
-        DEPENDENCIES=$(mvn dependency:list -DoutputFile=/dev/stdout 2>/dev/null | grep ':.*:.*:' || echo "Could not extract dependencies")
-        echo "dependencies<<EOF" >> $GITHUB_OUTPUT
-        echo "$DEPENDENCIES" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
-
-    - name: Trigger Zapier AI Security Fix
-      if: steps.check-vulns.outputs.vulnerabilities-found == 'true'
-      run: |
-        VULNERABILITY_REPORT=$(cat trivy-maven-results.json | jq -c .)
-        FILE_STRUCTURE_ESCAPED=$(echo "${{ steps.repo-structure.outputs.file_structure }}" | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
-        DEPENDENCIES_ESCAPED=$(echo "${{ steps.repo-structure.outputs.dependencies }}" | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
-        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
-          -H "Content-Type: application/json" \
-          --data @- << EOT
-        {
-          "repository": "${{ github.repository }}",
-          "commit_sha": "${{ github.sha }}",
-          "branch_ref": "${{ github.ref }}",
-          "vulnerability_report": ${VULNERABILITY_REPORT},
-          "repository_structure": "$FILE_STRUCTURE_ESCAPED",
-          "dependencies": "$DEPENDENCIES_ESCAPED",
-          "repository_url": "${{ github.server_url }}/${{ github.repository }}",
-          "actor": "${{ github.actor }}"
-        }
-        EOT
-
     - name: Create Maven dependencies scan summary
       if: always()
       run: |
@@ -110,12 +51,110 @@ jobs:
           cat trivy-maven-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | [.Severity, .VulnerabilityID, .PkgName, .InstalledVersion, (.FixedVersion // "No fix"), $target, (.Description // "N/A" | gsub(","; ";") | gsub("\n"; " ") | .[:100])] | @csv' >> trivy-maven-fs-vulnerabilities.csv
         fi
 
-    - name: Upload Maven dependencies scan summary
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: trivy-maven-fs-vulnerabilities-csv
-        path: trivy-maven-fs-vulnerabilities.csv
+    - name: Check and Set Vulnerability Count for Webhook
+      id: check-vulns
+      run: |
+        echo "=== Checking for trivy-maven-fs-vulnerabilities.csv ==="
+        ls -la trivy-maven-fs-vulnerabilities.csv || echo "CSV file not found!"
+        
+        if [ -f trivy-maven-fs-vulnerabilities.csv ]; then
+          echo "=== CSV file exists, checking HIGH/CRITICAL vulnerabilities ==="
+          
+          # Count HIGH and CRITICAL vulnerabilities from CSV (skip header line)
+          VULN_COUNT=$(tail -n +2 trivy-maven-fs-vulnerabilities.csv | grep -E "^(HIGH|CRITICAL)," | wc -l)
+          
+          echo "=== Vulnerability count: $VULN_COUNT ==="
+        else
+          VULN_COUNT=0
+          echo "=== No CSV file found ==="
+        fi
+        
+        if [ "$VULN_COUNT" -gt 0 ]; then
+          echo "vulnerabilities-found=true" >> $GITHUB_OUTPUT
+          echo "vulnerability-count=$VULN_COUNT" >> $GITHUB_OUTPUT
+          echo "✅ Found $VULN_COUNT HIGH/CRITICAL Maven dependency vulnerabilities."
+          echo "🚨 WEBHOOK WILL BE TRIGGERED"
+        else
+          echo "vulnerabilities-found=false" >> $GITHUB_OUTPUT
+          echo "✅ No HIGH/CRITICAL Maven dependency vulnerabilities found."
+          echo "ℹ️ Webhook will NOT be triggered"
+        fi
+
+    - name: Get repository structure
+      id: repo-structure
+      if: steps.check-vulns.outputs.vulnerabilities-found == 'true'
+      run: |
+        echo "=== Collecting repository structure ==="
+        FILE_STRUCTURE=$(find . -type f -not -path '*/\.*' -not -path '*/node_modules/*' -not -path '*/target/*' | head -100)
+        echo "file_structure<<EOF" >> $GITHUB_OUTPUT
+        echo "$FILE_STRUCTURE" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        
+        echo "=== Extracting Maven dependencies ==="
+        DEPENDENCIES=$(mvn dependency:list -DoutputFile=/dev/stdout 2>/dev/null | grep ':.*:.*:' || echo "Could not extract dependencies")
+        echo "dependencies<<EOF" >> $GITHUB_OUTPUT
+        echo "$DEPENDENCIES" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        
+        echo "✅ Repository structure and dependencies collected"
+
+    - name: Trigger Zapier AI Security Fix
+      if: steps.check-vulns.outputs.vulnerabilities-found == 'true'
+      run: |
+        echo "🔔 Triggering Zapier webhook..."
+        echo "Repository: ${{ github.repository }}"
+        echo "Commit: ${{ github.sha }}"
+        
+        if [ -z "${{ secrets.ZAPIER_WEBHOOK_URL }}" ]; then
+          echo "❌ ERROR: ZAPIER_WEBHOOK_URL secret is not set!"
+          exit 1
+        fi
+        
+        echo "=== Preparing payload from CSV ==="
+        
+        # Read CSV and convert to JSON array
+        VULNERABILITY_REPORT=$(awk -F',' 'NR>1 {
+          gsub(/"/, "\\\"", $0);
+          printf "{\"severity\":\"%s\",\"cve\":\"%s\",\"package\":\"%s\",\"installed_version\":\"%s\",\"fixed_version\":\"%s\",\"file\":\"%s\",\"description\":\"%s\"},", $1, $2, $3, $4, $5, $6, $7
+        }' trivy-maven-fs-vulnerabilities.csv | sed 's/,$//')
+        VULNERABILITY_REPORT="[${VULNERABILITY_REPORT}]"
+        
+        FILE_STRUCTURE_ESCAPED=$(echo "${{ steps.repo-structure.outputs.file_structure }}" | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
+        DEPENDENCIES_ESCAPED=$(echo "${{ steps.repo-structure.outputs.dependencies }}" | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
+        
+        echo "=== Sending webhook request ==="
+        HTTP_CODE=$(curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
+          -H "Content-Type: application/json" \
+          -w "%{http_code}" \
+          -o /tmp/webhook-response.txt \
+          --data @- << EOT
+        {
+          "repository": "${{ github.repository }}",
+          "commit_sha": "${{ github.sha }}",
+          "branch_ref": "${{ github.ref }}",
+          "vulnerability_report": ${VULNERABILITY_REPORT},
+          "repository_structure": "$FILE_STRUCTURE_ESCAPED",
+          "dependencies": "$DEPENDENCIES_ESCAPED",
+          "repository_url": "${{ github.server_url }}/${{ github.repository }}",
+          "actor": "${{ github.actor }}",
+          "vulnerability_count": "${{ steps.check-vulns.outputs.vulnerability-count }}"
+        }
+        EOT
+        )
+        
+        echo "=== Response ==="
+        echo "HTTP Status Code: $HTTP_CODE"
+        if [ -f /tmp/webhook-response.txt ]; then
+          echo "Response body:"
+          cat /tmp/webhook-response.txt
+        fi
+        
+        if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+          echo "✅ Zapier webhook triggered successfully!"
+        else
+          echo "❌ Zapier webhook failed with HTTP $HTTP_CODE"
+          exit 1
+        fi
 
     - name: Build Docker image
       run: |
