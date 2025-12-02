@@ -67,7 +67,7 @@ jobs:
         curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
           -H "Content-Type: application/json" \
           -d '{
-            "file_content": $FILE_CONTENT_ESCAPED
+            "file_content": ${FILE_CONTENT_ESCAPED}
           }'
 
   trivy-maven-dependencies:
