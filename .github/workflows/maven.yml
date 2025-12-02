@@ -132,15 +132,19 @@ jobs:
         find . -type f \( -name "*.java" -o -name "pom.xml" -o -name "*.properties" \) \
           | grep -v target | grep -v .git | head -50 > file-list.txt
 
-        echo "file_structure<<EOF" >> $GITHUB_OUTPUT
-        cat file-list.txt >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+        {
+          echo 'file_structure<<DELIMITER_FILE_STRUCTURE'
+          cat file-list.txt
+          echo 'DELIMITER_FILE_STRUCTURE'
+        } >> $GITHUB_OUTPUT
 
         # Read entire pom.xml file
         if [ -f "pom.xml" ]; then
-          echo "pom_xml<<EOF" >> $GITHUB_OUTPUT
-          cat pom.xml >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo 'pom_xml<<DELIMITER_POM_XML'
+            cat pom.xml
+            echo 'DELIMITER_POM_XML'
+          } >> $GITHUB_OUTPUT
         else
           echo "pom_xml=pom.xml not found" >> $GITHUB_OUTPUT
         fi
@@ -157,7 +161,6 @@ jobs:
           --data @- << EOT
         {
           "vulnerability_report": ${VULNERABILITY_REPORT},
-          "repository_structure": "$FILE_STRUCTURE_ESCAPED",
           "pom_xml": "$POM_XML_ESCAPED",
         }
         EOT
