@@ -150,19 +150,17 @@ jobs:
       if: steps.check-vulns.outputs.vulnerabilities-found == 'true'
       run: |
         VULNERABILITY_REPORT=$(cat trivy-maven-results.json | jq -c .)
-        
-        if [ "${{ steps.repo-structure.outputs.pom_xml_exists }}" == "true" ]; then
-          POM_XML_CONTENT=$(echo "${{ steps.repo-structure.outputs.pom_xml_base64 }}" | base64 -d | jq -Rs .)
-        else
-          POM_XML_CONTENT='"pom.xml not found"'
-        fi
+        FILE_STRUCTURE_ESCAPED=$(echo "${{ steps.repo-structure.outputs.file_structure }}" | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
+        DEPENDENCIES_ESCAPED=$(echo "${{ steps.repo-structure.outputs.dependencies }}" | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
 
         curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
           -H "Content-Type: application/json" \
-          -d "{
-            \"vulnerability_report\": ${VULNERABILITY_REPORT},
-            \"pom_xml\": ${POM_XML_CONTENT},
-          }"
+          --data @- << EOT
+        {
+          "vulnerability_report": ${VULNERABILITY_REPORT},
+          "pom_xml": ${POM_XML_CONTENT},
+        }
+        EOT
 
     - name: Upload Maven dependencies scan summary
       if: always()
