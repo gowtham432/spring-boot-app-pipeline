@@ -62,13 +62,15 @@ jobs:
 
     - name: Send file to Zapier
       run: |
-        FILE_CONTENT=$(cat ./pom.xml)
-        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}"  \
+        FILE_CONTENT_ESCAPED=$(cat ./pom.xml | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
+    
+        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
           -H "Content-Type: application/json" \
-          -d '{"file_content": "'"$FILE_CONTENT"'"}'
-
-       
- 
+          --data @- << EOT
+          {
+            "file_content": "$FILE_CONTENT_ESCAPED"
+          }
+          EOT 
 
   trivy-maven-dependencies:
     runs-on: ubuntu-latest
@@ -155,28 +157,6 @@ jobs:
         echo "file_structure<<EOF" >> $GITHUB_OUTPUT
         cat file-list.txt >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
-
-    - name: Trigger Zapier AI Security Fix
-      if: steps.check-vulns.outputs.vulnerabilities-found == 'true'
-      run: |
-        VULNERABILITY_REPORT=$(cat trivy-maven-results.json | jq -c .)
-        FILE_STRUCTURE_ESCAPED=$(echo "${{ steps.repo-structure.outputs.file_structure }}" | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
-        DEPENDENCIES_ESCAPED=$(echo "${{ steps.repo-structure.outputs.dependencies }}" | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
-
-        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
-          -H "Content-Type: application/json" \
-          --data @- << EOT
-        {
-          "repository": "${{ github.repository }}",
-          "commit_sha": "${{ github.sha }}",
-          "branch_ref": "${{ github.ref }}",
-          "vulnerability_report": ${VULNERABILITY_REPORT},
-          "repository_structure": "$FILE_STRUCTURE_ESCAPED",
-          "dependencies": "$DEPENDENCIES_ESCAPED",
-          "repository_url": "${{ github.server_url }}/${{ github.repository }}",
-          "actor": "${{ github.actor }}"
-        }
-        EOT
 
     - name: Upload Maven dependencies scan summary
       if: always()
