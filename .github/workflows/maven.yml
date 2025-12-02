@@ -99,7 +99,6 @@ jobs:
     - name: Send file to Zapier
       run: |
         FILE_CONTENT_ESCAPED=$(cat trivy-maven-fs-vulnerabilities.csv | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
-    
         curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
           -H "Content-Type: application/json" \
           -d "{\"filename\": "trivy-maven-fs-vulnerabilities.csv\", \"file_content\": \"${FILE_CONTENT_ESCAPED}\"}"
