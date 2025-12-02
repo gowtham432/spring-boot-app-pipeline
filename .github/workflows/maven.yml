@@ -1,73 +1,18 @@
+
 name: Java CI with Maven
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "pavan2" ]
   pull_request:
-    branches: [ "master" ]
+    branches: [ "pavan2" ]
 
 env:
-  IMAGE_NAME: ghcr.io/gowtham432/spring-boot-app-pipeline
+  IMAGE_NAME: pavankumar4233/gowtham
   IMAGE_TAG: ${{ github.run_number }}
 
 jobs:
   build-and-scan:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Set up JDK 21
-      uses: actions/setup-java@v4
-      with:
-        java-version: '21'
-        distribution: 'temurin'
-        cache: maven
-
-    - name: Build with Maven
-      run: mvn -B package -DskipTests --file pom.xml
-
-    - name: Build Docker image
-      run: |
-        docker build -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} .
-
-    - name: Scan for vulnerabilities with Trivy for docker image (JSON output)
-      uses: aquasecurity/trivy-action@0.28.0
-      with:
-        image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-        format: 'json'
-        output: 'trivy-image-scan.json'
-        severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
-      continue-on-error: true
-      
-    - name: Create clean vulnerability summary
-      if: always()
-      run: |
-        if [ -f trivy-image-scan.json ]; then     
-          # Create CSV
-          echo "Severity,CVE,Package,Installed Version,Fixed Version,Target,Description" > trivy-vulnerabilities-image.csv
-          cat trivy-image-scan.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | [.Severity, .VulnerabilityID, .PkgName, .InstalledVersion, (.FixedVersion // "No fix"), $target, (.Description // "N/A" | gsub(","; ";") | gsub("\n"; " ") | .[:100])] | @csv' >> trivy-vulnerabilities-image.csv
-        fi
-
-    - name: Upload Trivy summary report
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: trivy-vulnerabilities-image-csv
-        path: trivy-vulnerabilities-image.csv
-
-    - name: Send file to Zapier
-      run: |
-          FILE_CONTENT_ESCAPED=$(cat pom.xml | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
-          curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
-            -H "Content-Type: application/json" \
-            -d "{\"file_content\": \"${FILE_CONTENT_ESCAPED}\"}"    
-
-  trivy-maven-dependencies:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -93,69 +38,75 @@ jobs:
         scan-type: 'fs'
         scan-ref: '.'
         format: 'json'
-        output: 'trivy-maven-results.json'
+        output: 'trivy-results-fs.json'
         severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
         scanners: 'vuln,secret,misconfig,license'
       continue-on-error: true
 
+
     - name: Create Maven dependencies scan summary
       if: always()
       run: |
-        if [ -f trivy-maven-results.json ]; then
+        if [ -f trivy-results-fs.json ]; then
+  
           # Create CSV for Maven dependencies
           echo "Severity,CVE,Package,Installed Version,Fixed Version,File,Description" > trivy-maven-fs-vulnerabilities.csv
-          cat trivy-maven-results.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | [.Severity, .VulnerabilityID, .PkgName, .InstalledVersion, (.FixedVersion // "No fix"), $target, (.Description // "N/A" | gsub(","; ";") | gsub("\n"; " ") | .[:100])] | @csv' >> trivy-maven-fs-vulnerabilities.csv
+          cat trivy-results-fs.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | [.Severity, .VulnerabilityID, .PkgName, .InstalledVersion, (.FixedVersion // "No fix"), $target, (.Description // "N/A" | gsub(","; ";") | gsub("\n"; " ") | .[:100])] | @csv' >> trivy-maven-fs-vulnerabilities.csv
         fi
-
-    - name: Check and Set Vulnerability Count for Webhook
-      id: check-vulns
-      run: |
-        if [ -f trivy-maven-results.json ]; then
-          VULN_COUNT=$(jq '
-            [
-              .Results[]?
-              | select(.Vulnerabilities != null)
-              | .Vulnerabilities[]?
-              | select(.Severity == "HIGH" or .Severity == "CRITICAL")
-            ] | length
-          ' trivy-maven-results.json)
-        else
-          VULN_COUNT=0
-        fi
-
-        if [ "$VULN_COUNT" -gt 0 ]; then
-          echo "vulnerabilities-found=true" >> $GITHUB_OUTPUT
-          echo "vulnerability-count=$VULN_COUNT" >> $GITHUB_OUTPUT
-          echo "Found $VULN_COUNT HIGH/CRITICAL Maven dependency vulnerabilities."
-        else
-          echo "vulnerabilities-found=false" >> $GITHUB_OUTPUT
-          echo "No HIGH/CRITICAL Maven dependency vulnerabilities found."
-        fi
-
-    - name: Get repository structure and dependencies
-      if: steps.check-vulns.outputs.vulnerabilities-found == 'true'
-      id: repo-structure
-      run: |
-        find . -type f \( -name "*.java" -o -name "pom.xml" -o -name "*.properties" \) \
-          | grep -v target | grep -v .git | head -50 > file-list.txt
-
-        if [ -f "pom.xml" ]; then
-          DEPENDENCIES=$(cat pom.xml)
-        else
-          DEPENDENCIES="pom.xml not found."
-        fi
-
-        echo "dependencies<<EOF" >> $GITHUB_OUTPUT
-        echo "$DEPENDENCIES" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
-
-        echo "file_structure<<EOF" >> $GITHUB_OUTPUT
-        cat file-list.txt >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
 
     - name: Upload Maven dependencies scan summary
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: trivy-maven-fs-vulnerabilities-csv
+        name: trivy-maven-fs-vulnerabilities
         path: trivy-maven-fs-vulnerabilities.csv
+
+    - name: Build Docker image
+      run: |
+        docker build -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} .
+
+
+    - name: Scan for vulnerabilities with Trivy for docker image (JSON output)
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        format: 'json'
+        output: 'trivy-image-scan.json'
+        severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
+      continue-on-error: true
+      
+    - name: Create clean vulnerability summary
+      if: always()
+      run: |
+        if [ -f trivy-image-scan.json ]; then     
+          # Create CSV
+          echo "Severity,CVE,Package,Installed Version,Fixed Version,Target,Description" > trivy-vulnerabilities-image.csv
+          cat trivy-image-scan.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | [.Severity, .VulnerabilityID, .PkgName, .InstalledVersion, (.FixedVersion // "No fix"), $target, (.Description // "N/A" | gsub(","; ";") | gsub("\n"; " ") | .[:100])] | @csv' >> trivy-vulnerabilities-image.csv
+        fi
+    - name: outputs
+      run: |
+            pwd
+            ls -lrt
+            find . -name "pom.xml"
+            cat ./pom.xml
+    - name: Send files to Zapier
+      run: |
+          POM_CONTENT=$(cat pom.xml | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
+          CSV_CONTENT=$(cat trivy-maven-fs-vulnerabilities.csv | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
+          
+          curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"pom_file\": \"${POM_CONTENT}\", \"csv_content\": \"${CSV_CONTENT}\"}"
+
+    - name: Upload Trivy summary report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: trivy-vulnerabilities-image.
+        path: trivy-vulnerabilities-image.csv
+
+
+
+    
+
+  
