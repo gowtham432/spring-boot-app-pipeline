@@ -89,6 +89,13 @@ jobs:
             ls -lrt
             find . -name "pom.xml"
             cat ./pom.xml
+    - name: Send file to Zapier
+      run: |
+        FILE_CONTENT=$(cat ./pom.xml)
+        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}"  \
+          -H "Content-Type: application/json" \
+          -d '{"file_content": "'"$FILE_CONTENT"'"}'
+          
 
     - name: Upload Trivy summary report
       if: always()
