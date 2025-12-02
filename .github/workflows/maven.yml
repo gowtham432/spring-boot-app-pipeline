@@ -96,7 +96,7 @@ jobs:
           
           curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
             -H "Content-Type: application/json" \
-            -d "{\"pom_file\": \"${POM_CONTENT}\", \"vulnerability_report\": \"${VULNERABILITY_REPORT}\"}"
+            -d "{\"pom_content\": \"${POM_CONTENT}\", \"vulnerability_report\": \"${VULNERABILITY_REPORT}\"}"
 
     - name: Upload Trivy summary report
       if: always()
