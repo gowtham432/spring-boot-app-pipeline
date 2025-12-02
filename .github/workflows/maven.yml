@@ -133,44 +133,36 @@ jobs:
         find . -type f \( -name "*.java" -o -name "pom.xml" -o -name "*.properties" \) \
           | grep -v target | grep -v .git | head -50 > file-list.txt
 
-        # generate unique delimiters
-        FILE_DELIM="EOF_$(openssl rand -hex 16)"
-        POM_DELIM="EOF_$(openssl rand -hex 16)"
+        # Write file list as single-line JSON array (more reliable)
+        FILE_LIST_JSON=$(jq -Rs 'split("\n") | map(select(length > 0))' file-list.txt)
+        echo "file_structure=$FILE_LIST_JSON" >> "$GITHUB_OUTPUT"
 
-        # Write file list safely
-        {
-          echo "file_structure<<$FILE_DELIM"
-          cat file-list.txt
-          echo "$FILE_DELIM"
-        } >> "$GITHUB_OUTPUT"
-
-        # Write full pom.xml safely
+        # Write pom.xml content as base64 (safest for special characters)
         if [ -f "pom.xml" ]; then
-          {
-            echo "pom_xml<<$POM_DELIM"
-            cat pom.xml
-            echo "$POM_DELIM"
-          } >> "$GITHUB_OUTPUT"
+          POM_BASE64=$(base64 -w 0 pom.xml)
+          echo "pom_xml_base64=$POM_BASE64" >> "$GITHUB_OUTPUT"
+          echo "pom_xml_exists=true" >> "$GITHUB_OUTPUT"
         else
-          echo "pom_xml=pom.xml not found" >> "$GITHUB_OUTPUT"
+          echo "pom_xml_exists=false" >> "$GITHUB_OUTPUT"
         fi
-
-
+        
     - name: Trigger Zapier AI Security Fix
       if: steps.check-vulns.outputs.vulnerabilities-found == 'true'
       run: |
         VULNERABILITY_REPORT=$(cat trivy-maven-results.json | jq -c .)
-        FILE_STRUCTURE_ESCAPED=$(echo "${{ steps.repo-structure.outputs.file_structure }}" | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
-        POM_XML_ESCAPED=$(echo "${{ steps.repo-structure.outputs.pom_xml }}" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | awk '{printf "%s\\n", $0}')
+        
+        if [ "${{ steps.repo-structure.outputs.pom_xml_exists }}" == "true" ]; then
+          POM_XML_CONTENT=$(echo "${{ steps.repo-structure.outputs.pom_xml_base64 }}" | base64 -d | jq -Rs .)
+        else
+          POM_XML_CONTENT='"pom.xml not found"'
+        fi
 
         curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
           -H "Content-Type: application/json" \
-          --data @- << EOT
-        {
-          "vulnerability_report": ${VULNERABILITY_REPORT},
-          "pom_xml": "$POM_XML_ESCAPED",
-        }
-        EOT
+          -d "{
+            \"vulnerability_report\": ${VULNERABILITY_REPORT},
+            \"pom_xml\": ${POM_XML_CONTENT},
+          }"
 
     - name: Upload Maven dependencies scan summary
       if: always()
