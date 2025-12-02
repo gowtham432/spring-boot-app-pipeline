@@ -3,12 +3,12 @@ name: Java CI with Maven
 
 on:
   push:
-    branches: [ "pavan2" ]
+    branches: [ "master" ]
   pull_request:
-    branches: [ "pavan2" ]
+    branches: [ "master" ]
 
 env:
-  IMAGE_NAME: pavankumar4233/gowtham
+  IMAGE_NAME:  ghcr.io/gowtham432/spring-boot-app-pipeline
   IMAGE_TAG: ${{ github.run_number }}
 
 jobs:
