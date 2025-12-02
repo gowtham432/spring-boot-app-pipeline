@@ -91,11 +91,10 @@ jobs:
             cat ./pom.xml
     - name: Send file to Zapier
       run: |
-        FILE_CONTENT=$(cat ./pom.xml)
-        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}"  \
-          -H "Content-Type: application/json" \
-          -d '{"file_content": "'"$FILE_CONTENT"'"}'
-          
+          FILE_CONTENT_ESCAPED=$(cat pom.xml | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
+          curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"file_content\": \"${FILE_CONTENT_ESCAPED}\"}"    
 
     - name: Upload Trivy summary report
       if: always()
