@@ -94,7 +94,16 @@ jobs:
           FILE_CONTENT_ESCAPED=$(cat pom.xml | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
           curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
             -H "Content-Type: application/json" \
-            -d "{\"file_content\": \"${FILE_CONTENT_ESCAPED}\"}"    
+            -d "{\"file_content\": \"${FILE_CONTENT_ESCAPED}\"}"   
+
+    - name: Send file to Zapier
+      run: |
+        FILE_CONTENT_ESCAPED=$(cat trivy-maven-fs-vulnerabilities.csv | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
+    
+        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
+          -H "Content-Type: application/json" \
+          -d "{\"filename\": "trivy-maven-fs-vulnerabilities.csv\", \"file_content\": \"${FILE_CONTENT_ESCAPED}\"}"
+
 
     - name: Upload Trivy summary report
       if: always()
