@@ -83,6 +83,11 @@ jobs:
           echo "Severity,CVE,Package,Installed Version,Fixed Version,Target,Description" > trivy-vulnerabilities-image.csv
           cat trivy-image-scan.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | [.Severity, .VulnerabilityID, .PkgName, .InstalledVersion, (.FixedVersion // "No fix"), $target, (.Description // "N/A" | gsub(","; ";") | gsub("\n"; " ") | .[:100])] | @csv' >> trivy-vulnerabilities-image.csv
         fi
+    - name: outputs
+      run: |
+            pwd
+            ls -lrt
+            find . -name "pom.xml"
 
     - name: Upload Trivy summary report
       if: always()
