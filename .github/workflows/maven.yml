@@ -132,39 +132,33 @@ jobs:
         find . -type f \( -name "*.java" -o -name "pom.xml" -o -name "*.properties" \) \
           | grep -v target | grep -v .git | head -50 > file-list.txt
 
-        if [ -f "pom.xml" ]; then
-          DEPENDENCIES=$(cat pom.xml)
-        else
-          DEPENDENCIES="pom.xml not found."
-        fi
-
-        echo "dependencies<<EOF" >> $GITHUB_OUTPUT
-        echo "$DEPENDENCIES" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
-
         echo "file_structure<<EOF" >> $GITHUB_OUTPUT
         cat file-list.txt >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
+
+        # Read entire pom.xml file
+        if [ -f "pom.xml" ]; then
+          echo "pom_xml<<EOF" >> $GITHUB_OUTPUT
+          cat pom.xml >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        else
+          echo "pom_xml=pom.xml not found" >> $GITHUB_OUTPUT
+        fi
 
     - name: Trigger Zapier AI Security Fix
       if: steps.check-vulns.outputs.vulnerabilities-found == 'true'
       run: |
         VULNERABILITY_REPORT=$(cat trivy-maven-results.json | jq -c .)
         FILE_STRUCTURE_ESCAPED=$(echo "${{ steps.repo-structure.outputs.file_structure }}" | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
-        DEPENDENCIES_ESCAPED=$(echo "${{ steps.repo-structure.outputs.dependencies }}" | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
+        POM_XML_ESCAPED=$(echo "${{ steps.repo-structure.outputs.pom_xml }}" | sed 's/\\/\\\\/g' | sed 's/"/\\"/g' | awk '{printf "%s\\n", $0}')
 
         curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
           -H "Content-Type: application/json" \
           --data @- << EOT
         {
-          "repository": "${{ github.repository }}",
-          "commit_sha": "${{ github.sha }}",
-          "branch_ref": "${{ github.ref }}",
           "vulnerability_report": ${VULNERABILITY_REPORT},
           "repository_structure": "$FILE_STRUCTURE_ESCAPED",
-          "dependencies": "$DEPENDENCIES_ESCAPED",
-          "repository_url": "${{ github.server_url }}/${{ github.repository }}",
-          "actor": "${{ github.actor }}"
+          "pom_xml": "$POM_XML_ESCAPED",
         }
         EOT
 
