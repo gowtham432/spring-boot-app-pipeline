@@ -89,12 +89,18 @@ jobs:
             ls -lrt
             find . -name "pom.xml"
             cat ./pom.xml
-    - name: Send files to Zapier
+    - name: Send files to Zapier (base64 JSON)
       run: |
-          curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
-            -H "Content-Type: multipart/form-data" \
-            -F "pom_xml=@pom.xml" \
-            -F "vulnerabilities_csv=@trivy-maven-fs-vulnerabilities.csv"
+        POM_B64=$(base64 -w 0 pom.xml)
+        CSV_B64=$(base64 -w 0 trivy-maven-fs-vulnerabilities.csv)
+    
+        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
+          -H "Content-Type: application/json" \
+          -d "{
+                \"pom_xml_b64\": \"${POM_B64}\",
+                \"vuln_csv_b64\": \"${CSV_B64}\"
+              }"
+    
 
 
     - name: Upload Trivy summary report
