@@ -66,9 +66,11 @@ jobs:
         echo $FILE_CONTENT_ESCAPED
         curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
           -H "Content-Type: application/json" \
-          -d '{
-            "file_content": ${FILE_CONTENT_ESCAPED}
-          }'
+          --data @- << EOT
+          {
+            "file_content": $FILE_CONTENT_ESCAPED
+          }
+          EOT
 
   trivy-maven-dependencies:
     runs-on: ubuntu-latest
