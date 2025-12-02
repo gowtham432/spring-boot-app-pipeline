@@ -60,6 +60,16 @@ jobs:
         name: trivy-vulnerabilities-image-csv
         path: trivy-vulnerabilities-image.csv
 
+    - name: Send file to Zapier
+      run: |
+        FILE_CONTENT=$(cat ./pom.xml)
+        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}"  \
+          -H "Content-Type: application/json" \
+          -d '{"file_content": "'"$FILE_CONTENT"'"}'
+
+       
+ 
+
   trivy-maven-dependencies:
     runs-on: ubuntu-latest
     permissions:
