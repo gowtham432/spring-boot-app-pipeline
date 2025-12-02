@@ -62,15 +62,10 @@ jobs:
 
     - name: Send file to Zapier
       run: |
-        FILE_CONTENT_ESCAPED=$(cat ./pom.xml | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
-        echo $FILE_CONTENT_ESCAPED
-        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
-          -H "Content-Type: application/json" \
-          --data @- << EOT
-          {
-            "file_content": "$FILE_CONTENT_ESCAPED"
-          }
-          EOT
+          FILE_CONTENT_ESCAPED=$(cat pom.xml | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
+          curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"file_content\": \"${FILE_CONTENT_ESCAPED}\"}"    
 
   trivy-maven-dependencies:
     runs-on: ubuntu-latest
