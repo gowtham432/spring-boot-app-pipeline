@@ -129,26 +129,29 @@ jobs:
       if: steps.check-vulns.outputs.vulnerabilities-found == 'true'
       id: repo-structure
       run: |
+        # Find files
         find . -type f \( -name "*.java" -o -name "pom.xml" -o -name "*.properties" \) \
           | grep -v target | grep -v .git | head -50 > file-list.txt
 
-        # Write file structure
+        FILE_DELIM="EOF_$(openssl rand -hex 12)"
+        POM_DELIM="EOF_$(openssl rand -hex 12)"
+
         {
-          echo "file_structure<<EOF_FILE"
+          echo "file_structure<<$FILE_DELIM"
           cat file-list.txt
-          echo "EOF_FILE"
+          echo "$FILE_DELIM"
         } >> "$GITHUB_OUTPUT"
 
-        # Write full pom.xml (safe multiline)
         if [ -f "pom.xml" ]; then
           {
-            echo "pom_xml<<EOF_POM"
+            echo "pom_xml<<$POM_DELIM"
             cat pom.xml
-            echo "EOF_POM"
+            echo "$POM_DELIM"
           } >> "$GITHUB_OUTPUT"
         else
           echo "pom_xml=pom.xml not found" >> "$GITHUB_OUTPUT"
         fi
+
 
 
     - name: Trigger Zapier AI Security Fix
