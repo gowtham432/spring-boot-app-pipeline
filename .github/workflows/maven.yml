@@ -133,24 +133,24 @@ jobs:
         find . -type f \( -name "*.java" -o -name "pom.xml" -o -name "*.properties" \) \
           | grep -v target | grep -v .git | head -50 > file-list.txt
 
-        FILE_DELIM="EOF_$(openssl rand -hex 12)"
-        POM_DELIM="EOF_$(openssl rand -hex 12)"
-
+        # Write file list safely
         {
-          echo "file_structure<<$FILE_DELIM"
+          echo "file_structure<<'EOF_FILE'"
           cat file-list.txt
-          echo "$FILE_DELIM"
+          echo "EOF_FILE"
         } >> "$GITHUB_OUTPUT"
 
+        # Write full pom.xml safely
         if [ -f "pom.xml" ]; then
           {
-            echo "pom_xml<<$POM_DELIM"
+            echo "pom_xml<<'EOF_POM'"
             cat pom.xml
-            echo "$POM_DELIM"
+            echo "EOF_POM"
           } >> "$GITHUB_OUTPUT"
         else
           echo "pom_xml=pom.xml not found" >> "$GITHUB_OUTPUT"
         fi
+
 
 
 
