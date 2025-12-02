@@ -88,6 +88,7 @@ jobs:
             pwd
             ls -lrt
             find . -name "pom.xml"
+            cat ./pom.xml
 
     - name: Upload Trivy summary report
       if: always()
