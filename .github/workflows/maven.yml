@@ -68,7 +68,7 @@ jobs:
           -H "Content-Type: application/json" \
           --data @- << EOT
           {
-            "file_content": "$FILE_CONTENT_ESCAPED"
+            "file_content": "Hy"
           }
           EOT 
 
