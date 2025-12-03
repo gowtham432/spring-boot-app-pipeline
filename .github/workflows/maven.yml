@@ -96,7 +96,7 @@ jobs:
           --arg vuln "$(cat trivy-maven-fs-vulnerabilities.csv | base64 -w 0)" \
           '{pom_content: $pom, vulnerability_report: $vuln, encoding: "base64"}')
         
-        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
+        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL_2 }}" \
           -H "Content-Type: application/json" \
           -d "$PAYLOAD"
     - name: Upload Trivy summary report
