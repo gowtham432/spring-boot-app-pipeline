@@ -92,9 +92,9 @@ jobs:
     - name: Send files to Zapier
       run: |
         PAYLOAD=$(jq -n \
-          --arg pom "$(cat pom.xml | base64 -w 0)" \
-          --arg vuln "$(cat trivy-maven-fs-vulnerabilities.csv | base64 -w 0)" \
-          '{pom_content: $pom, vulnerability_report: $vuln, encoding: "base64"}')
+          --arg pom "$(cat pom.xml | jq -Rs .)" \
+          --arg vuln "$(cat trivy-maven-fs-vulnerabilities.csv | jq -Rs .)" \
+          '{pom_content: ($pom | fromjson), vulnerability_report: ($vuln | fromjson)}')
         
         curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
           -H "Content-Type: application/json" \
