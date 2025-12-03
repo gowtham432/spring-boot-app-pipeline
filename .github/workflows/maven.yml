@@ -91,14 +91,14 @@ jobs:
             cat ./pom.xml
     - name: Send files to Zapier
       run: |
-          POM_CONTENT=$(cat pom.xml | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
-          VULNERABILITY_REPORT=$(cat trivy-maven-fs-vulnerabilities.csv | tr -d '\n' | sed 's/\\/\\\\/g' | sed 's/"/\\"/g')
-          
-          PAYLOAD='{"pom_content": "'"${POM_CONTENT}"'", "vulnerability_report": "'"${VULNERABILITY_REPORT}"'"}'
-          
-          curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
-            -H "Content-Type: application/json" \
-            -d "${PAYLOAD}"
+        PAYLOAD=$(jq -n \
+          --arg pom "$(cat pom.xml)" \
+          --arg vuln "$(cat trivy-maven-fs-vulnerabilities.csv)" \
+          '{pom_content: $pom, vulnerability_report: $vuln}')
+        
+        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL }}" \
+          -H "Content-Type: application/json" \
+          -d "$PAYLOAD"
     - name: Upload Trivy summary report
       if: always()
       uses: actions/upload-artifact@v4
