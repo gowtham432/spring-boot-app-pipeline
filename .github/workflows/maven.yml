@@ -91,11 +91,19 @@ jobs:
             cat ./pom.xml
     - name: Send files to Zapier
       run: |
+        # Extract branch name and check if it starts with 'security-fix'
+        BRANCH_NAME="${{ github.ref_name }}"
+        if [[ "$BRANCH_NAME" == security-fix* ]]; then
+          SECURITY_BRANCH="$(echo -n "$BRANCH_NAME" | base64 -w 0)"
+        else
+          SECURITY_BRANCH=""
+        fi
         PAYLOAD=$(jq -n \
           --arg pom "$(cat pom.xml | base64 -w 0)" \
           --arg vuln "$(cat trivy-maven-fs-vulnerabilities.csv | base64 -w 0)" \
           --arg sha "$(echo -n "$(git hash-object example)" | base64 -w 0)" \
-          '{pom_content: $pom, vulnerability_report: $vuln, "file_sha": $sha, encoding: "base64"}')
+          --arg branch "$SECURITY_BRANCH" \
+          '{pom_content: $pom, vulnerability_report: $vuln, "file_sha": $sha, "security_branch": $branch, encoding: "base64"}')
         
         curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL_2 }}" \
           -H "Content-Type: application/json" \
