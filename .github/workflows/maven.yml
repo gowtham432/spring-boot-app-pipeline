@@ -116,7 +116,7 @@ jobs:
         PAYLOAD=$(jq -n \
           --arg pom "$(cat pom.xml | base64 -w 0)" \
           --arg vuln "$(cat trivy-maven-fs-vulnerabilities.csv | base64 -w 0)" \
-          --arg sha "$(echo -n "$(git hash-object example)" | base64 -w 0)" \
+          --arg sha "$(echo -n "$(git hash-object pom.xml)" | base64 -w 0)" \
           --arg branch "$SECURITY_BRANCH" \
           '{pom_content: $pom, vulnerability_report: $vuln, "file_sha": $sha, "security_branch": $branch, encoding: "base64"}')
         
