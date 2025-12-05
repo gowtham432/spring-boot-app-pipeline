@@ -94,8 +94,9 @@ jobs:
         PAYLOAD=$(jq -n \
           --arg pom "$(cat pom.xml | base64 -w 0)" \
           --arg vuln "$(cat trivy-maven-fs-vulnerabilities.csv | base64 -w 0)" \
-          --arg sha "${{ github.sha }}" \
-          '{pom_content: $pom, vulnerability_report: $vuln,  commit_sha: $sha, encoding: "base64"}')
+          --arg sha "$(echo -n '${{ github.sha }}' | base64 -w 0)" \
+
+          '{pom_content: $pom, vulnerability_report: $vuln, commit_sha: $sha, encoding: "base64"}')
         
         curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL_2 }}" \
           -H "Content-Type: application/json" \
