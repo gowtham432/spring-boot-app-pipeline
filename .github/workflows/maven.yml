@@ -91,6 +91,20 @@ jobs:
             cat ./pom.xml
     - name: Send files to Zapier
       run: |
+        # Check if file exists
+        if [ ! -f trivy-maven-fs-vulnerabilities.csv ]; then
+          echo "Vulnerability file not found. Skipping Zapier webhook."
+          exit 0
+        fi
+
+        # Count lines excluding header
+        VULN_COUNT=$(tail -n +2 trivy-maven-fs-vulnerabilities.csv | grep -v '^[[:space:]]*$' | wc -l)
+        
+        if [ "$VULN_COUNT" -eq 0 ]; then
+          echo "No vulnerabilities found in CSV. Skipping Zapier webhook."
+          exit 0
+        fi
+        
         # Extract branch name and check if it starts with 'security-fix'
         BRANCH_NAME="${{ github.ref_name }}"
         if [[ "$BRANCH_NAME" == security-fix* ]]; then
@@ -98,6 +112,7 @@ jobs:
         else
           SECURITY_BRANCH="$(echo -n "branch not found" | base64 -w 0)"
         fi
+        
         PAYLOAD=$(jq -n \
           --arg pom "$(cat pom.xml | base64 -w 0)" \
           --arg vuln "$(cat trivy-maven-fs-vulnerabilities.csv | base64 -w 0)" \
