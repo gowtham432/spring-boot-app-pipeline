@@ -4,11 +4,11 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <!-- Parent (Spring Boot) - UPDATED to 3.4.5 to fix CVE-2025-22235 -->
+    <!-- Parent (Spring Boot) -->
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.4.5</version>
+        <version>3.4.1</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
 
@@ -45,9 +45,6 @@
 
         <!-- Spring Framework safe patch (force Spring artifacts when needed) -->
         <version.spring.framework>6.2.11</version.spring.framework>
-        
-        <!-- Protobuf - ADDED to fix CVE-2024-7254 -->
-        <version.protobuf>4.28.2</version.protobuf>
     </properties>
 
     <dependencies>
@@ -160,13 +157,6 @@
     <!-- Force fixed versions (overrides transitive pulls) -->
     <dependencyManagement>
         <dependencies>
-            <!-- Protobuf - ADDED to fix CVE-2024-7254 -->
-            <dependency>
-                <groupId>com.google.protobuf</groupId>
-                <artifactId>protobuf-java</artifactId>
-                <version>${version.protobuf}</version>
-            </dependency>
-            
             <!-- Tomcat embed -->
             <dependency>
                 <groupId>org.apache.tomcat.embed</groupId>
