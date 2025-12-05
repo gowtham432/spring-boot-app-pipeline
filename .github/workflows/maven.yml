@@ -96,7 +96,7 @@ jobs:
         if [[ "$BRANCH_NAME" == security-fix* ]]; then
           SECURITY_BRANCH="$(echo -n "$BRANCH_NAME" | base64 -w 0)"
         else
-          SECURITY_BRANCH="branch not found"
+          SECURITY_BRANCH="$(echo -n "branch not found" | base64 -w 0)"
         fi
         PAYLOAD=$(jq -n \
           --arg pom "$(cat pom.xml | base64 -w 0)" \
