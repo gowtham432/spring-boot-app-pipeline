@@ -88,40 +88,75 @@ jobs:
             ls -lrt
             find . -name "pom.xml"
             cat ./pom.xml
-    - name: Send files to Zapier
+    - name: Zapier Webhook with Per-Branch Retries
+      id: zapier_step
       run: |
-        # Check if file exists
-        if [ ! -f trivy-maven-fs-vulnerabilities.csv ]; then
-          echo "Vulnerability file not found. Skipping Zapier webhook."
-          exit 0
-        fi
-
-        # Count lines excluding header
-        VULN_COUNT=$(tail -n +2 trivy-maven-fs-vulnerabilities.csv | grep -v '^[[:space:]]*$' | wc -l)
-        
-        if [ "$VULN_COUNT" -eq 0 ]; then
-          echo "No vulnerabilities found in CSV. Skipping Zapier webhook."
-          exit 0
-        fi
-        
-        # Extract branch name and check if it starts with 'security-fix'
-        BRANCH_NAME="${{ github.ref_name }}"
-        if [[ "$BRANCH_NAME" == security-fix* ]]; then
-          SECURITY_BRANCH="$(echo -n "$BRANCH_NAME" | base64 -w 0)"
+        BRANCH="${{ github.ref_name }}"
+        CACHE_FILE=".retry-${BRANCH}"
+    
+        echo "Retry file name: $CACHE_FILE"
+  
+        # Restore retry counter if cache exists
+        if [ -f $CACHE_FILE ]; then
+          RETRIES=$(cat $CACHE_FILE)
         else
-          SECURITY_BRANCH="$(echo -n "branch not found" | base64 -w 0)"
+          RETRIES=0
         fi
-        
+    
+        echo "Retries for branch $BRANCH = $RETRIES"
+    
+        # Stop + reset if reached 10 attempts
+        if [ "$RETRIES" -ge 10 ]; then
+          echo "10 attempts reached → resetting for branch $BRANCH"
+          echo "0" > $CACHE_FILE
+          exit 0
+        fi
+    
+        # Ensure vulnerability file exists
+        if [ ! -f trivy-maven-fs-vulnerabilities.csv ]; then
+          echo "vuln file missing → reset"
+          echo "0" > $CACHE_FILE
+          exit 0
+        fi
+    
+        # Count vulnerabilities
+        VULN_COUNT=$(tail -n +2 trivy-maven-fs-vulnerabilities.csv | grep -v '^[[:space:]]*$' | wc -l)
+        if [ "$VULN_COUNT" -eq 0 ]; then
+          echo "no vulns → reset"
+          echo "0" > $CACHE_FILE
+          exit 0
+        fi
+    
+        # Create Zapier payload
+        BRANCH_B64=$(echo -n "$BRANCH" | base64 -w 0)
         PAYLOAD=$(jq -n \
           --arg pom "$(cat pom.xml | base64 -w 0)" \
           --arg vuln "$(cat trivy-maven-fs-vulnerabilities.csv | base64 -w 0)" \
           --arg sha "$(echo -n "$(git hash-object pom.xml)" | base64 -w 0)" \
-          --arg branch "$SECURITY_BRANCH" \
-          '{pom_content: $pom, vulnerability_report: $vuln, "file_sha": $sha, "security_branch": $branch, encoding: "base64"}')
-        
+          --arg branch "$BRANCH_B64" \
+          '{pom_content:$pom, vulnerability_report:$vuln, file_sha:$sha, security_branch:$branch, encoding:"base64"}'
+        )
+    
+        # Call webhook
+        echo "Calling Zapier webhook"
         curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL_2 }}" \
-          -H "Content-Type: application/json" \
-          -d "$PAYLOAD"
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
+    
+        # Increment retry count
+        NEW_RETRIES=$((RETRIES + 1))
+        echo "$NEW_RETRIES" > $CACHE_FILE
+        echo "Updated retries = $NEW_RETRIES"
+    
+      # Persist updated retries
+      continue-on-error: false
+    
+    - name: Save retry counter
+      uses: actions/cache/save@v4
+      with:
+        path: .retry-${{ github.ref_name }}
+        key: retry-${{ github.ref_name }}-v1
+    
     - name: Upload Trivy summary report
       if: always()
       uses: actions/upload-artifact@v4
