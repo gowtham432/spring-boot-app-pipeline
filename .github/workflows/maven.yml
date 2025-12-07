@@ -113,11 +113,16 @@ jobs:
         fi
     
         echo "Retries for branch $BRANCH = $RETRIES"
+        
+        # Export for use in next step
+        echo "RETRIES=$RETRIES" >> $GITHUB_OUTPUT
+        echo "SHOULD_CALL_SECONDARY=false" >> $GITHUB_OUTPUT
     
         # Stop + reset if reached 10 attempts
         if [ "$RETRIES" -ge 10 ]; then
           echo "10 attempts reached → resetting for branch $BRANCH"
           echo "0" > $CACHE_FILE
+          echo "SHOULD_CALL_SECONDARY=true" >> $GITHUB_OUTPUT
           exit 0
         fi
     
@@ -125,14 +130,18 @@ jobs:
         if [ ! -f trivy-maven-fs-vulnerabilities.csv ]; then
           echo "vuln file missing → reset"
           echo "0" > $CACHE_FILE
+          echo "SHOULD_CALL_SECONDARY=true" >> $GITHUB_OUTPUT
           exit 0
         fi
     
         # Count vulnerabilities
         VULN_COUNT=$(tail -n +2 trivy-maven-fs-vulnerabilities.csv | grep -v '^[[:space:]]*$' | wc -l)
+        echo "VULN_COUNT=$VULN_COUNT" >> $GITHUB_OUTPUT
+        
         if [ "$VULN_COUNT" -eq 0 ]; then
           echo "no vulns → reset"
           echo "0" > $CACHE_FILE
+          echo "SHOULD_CALL_SECONDARY=true" >> $GITHUB_OUTPUT
           exit 0
         fi
     
@@ -158,6 +167,44 @@ jobs:
         echo "Updated retries = $NEW_RETRIES"
     
       continue-on-error: false
+    
+    # New step: Call secondary webhook when vulnerabilities are zero or retries >= 10
+    - name: Call secondary webhook for clean/max-retry status
+      if: always() && steps.zapier_step.outputs.SHOULD_CALL_SECONDARY == 'true'
+      run: |
+        BRANCH="${{ github.ref_name }}"
+        RETRIES="${{ steps.zapier_step.outputs.RETRIES }}"
+        VULN_COUNT="${{ steps.zapier_step.outputs.VULN_COUNT }}"
+        
+        # Determine reason for calling this webhook
+        if [ "$RETRIES" -ge 10 ]; then
+          REASON="max_retries_reached"
+          MESSAGE="Maximum retry count (10) reached for branch $BRANCH"
+        elif [ "$VULN_COUNT" -eq 0 ] || [ ! -f trivy-maven-fs-vulnerabilities.csv ]; then
+          REASON="zero_vulnerabilities"
+          MESSAGE="No vulnerabilities found for branch $BRANCH"
+        else
+          REASON="unknown"
+          MESSAGE="Secondary webhook triggered"
+        fi
+        
+        echo "Calling secondary webhook - Reason: $REASON"
+        
+        # Create payload for secondary webhook
+        PAYLOAD=$(jq -n \
+          --arg branch "$BRANCH" \
+          '{
+            branch: $branch
+          }'
+        )
+        
+        # Call the secondary webhook
+        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL_PR }}" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
+        
+        echo "Secondary webhook called successfully"
+      continue-on-error: true
     
     # Save with unique key per run to avoid collisions
     - name: Save retry counter
