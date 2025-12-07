@@ -136,6 +136,13 @@
 			<artifactId>tomcat-embed-core</artifactId>
 			<version>11.0.12</version>
 		</dependency>
+
+		<!-- Logback Core -->
+		<dependency>
+			<groupId>ch.qos.logback</groupId>
+			<artifactId>logback-core</artifactId>
+			<version>1.5.19</version>
+		</dependency>
 	</dependencies>
 
 	<build>
