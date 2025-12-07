@@ -25,7 +25,7 @@ jobs:
       id: cache-restore
       uses: actions/cache/restore@v4
       with:
-        path: .retry-${{ github.ref_name }}
+        path: .retry-*
         key: retry-${{ github.ref_name }}-${{ github.run_number }}-v1
         restore-keys: |
           retry-${{ github.ref_name }}-
@@ -101,7 +101,9 @@ jobs:
       id: zapier_step
       run: |
         BRANCH="${{ github.ref_name }}"
-        CACHE_FILE=".retry-${BRANCH}"
+        # Sanitize branch name for use in filename (replace / with -)
+        SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
+        CACHE_FILE=".retry-${SAFE_BRANCH}"
     
         echo "Retry file name: $CACHE_FILE"
   
@@ -199,7 +201,7 @@ jobs:
         )
         
         # Call the secondary webhook
-        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL_PR }}" \
+        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL_SECONDARY }}" \
             -H "Content-Type: application/json" \
             -d "$PAYLOAD"
         
@@ -211,7 +213,7 @@ jobs:
       if: always()
       uses: actions/cache/save@v4
       with:
-        path: .retry-${{ github.ref_name }}
+        path: .retry-*
         key: retry-${{ github.ref_name }}-${{ github.run_number }}-v1
       continue-on-error: true  # Don't fail the workflow if cache save fails
     
