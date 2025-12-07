@@ -201,11 +201,17 @@ jobs:
         )
         
         # Call the secondary webhook
-        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL_SECONDARY }}" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD"
+        WEBHOOK_URL="${{ secrets.ZAPIER_WEBHOOK_URL_PR }}"
         
-        echo "Secondary webhook called successfully"
+        if [ -z "$WEBHOOK_URL" ]; then
+          echo "Warning: ZAPIER_WEBHOOK_URL_PR is not set. Skipping secondary webhook call."
+        else
+          curl -X POST "$WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD"
+          
+          echo "Secondary webhook called successfully"
+        fi
       continue-on-error: true
     
     # Save with unique key per run to avoid collisions
