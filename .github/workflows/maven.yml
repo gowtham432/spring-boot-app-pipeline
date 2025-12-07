@@ -98,6 +98,7 @@ jobs:
             cat ./pom.xml
             
     - name: Zapier Webhook with Per-Branch Retries
+      if: github.event_name != 'pull_request'
       id: zapier_step
       run: |
         BRANCH="${{ github.ref_name }}"
@@ -181,7 +182,7 @@ jobs:
     
     # New step: Call secondary webhook for clean/max-retry status
     - name: Call secondary webhook for clean/max-retry status
-      if: always() && steps.zapier_step.outputs.SHOULD_CALL_SECONDARY == 'true'
+      if: always() && && github.event_name != 'pull_request' && steps.zapier_step.outputs.SHOULD_CALL_SECONDARY == 'true'
       run: |
         BRANCH="${{ github.ref_name }}"
         RETRIES="${{ steps.zapier_step.outputs.RETRIES }}"
