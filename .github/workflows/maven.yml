@@ -25,7 +25,7 @@ jobs:
       id: cache-restore
       uses: actions/cache/restore@v4
       with:
-        path: .retry-${{ github.ref_name }}
+        path: .retry-*
         key: retry-${{ github.ref_name }}-${{ github.run_number }}-v1
         restore-keys: |
           retry-${{ github.ref_name }}-
@@ -101,7 +101,9 @@ jobs:
       id: zapier_step
       run: |
         BRANCH="${{ github.ref_name }}"
-        CACHE_FILE=".retry-${BRANCH}"
+        # Sanitize branch name for use in filename (replace / with -)
+        SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
+        CACHE_FILE=".retry-${SAFE_BRANCH}"
     
         echo "Retry file name: $CACHE_FILE"
   
@@ -114,9 +116,8 @@ jobs:
     
         echo "Retries for branch $BRANCH = $RETRIES"
         
-        # Export for use in next step
+        # Export for use in next step - default to NOT calling secondary webhook
         echo "RETRIES=$RETRIES" >> $GITHUB_OUTPUT
-        echo "SHOULD_CALL_SECONDARY=false" >> $GITHUB_OUTPUT
     
         # Stop + reset if reached 10 attempts
         if [ "$RETRIES" -ge 10 ]; then
@@ -130,7 +131,7 @@ jobs:
         if [ ! -f trivy-maven-fs-vulnerabilities.csv ]; then
           echo "vuln file missing → reset"
           echo "0" > $CACHE_FILE
-          echo "SHOULD_CALL_SECONDARY=true" >> $GITHUB_OUTPUT
+          # Don't call secondary webhook for missing file - only call it when max retries reached
           exit 0
         fi
     
@@ -139,11 +140,21 @@ jobs:
         echo "VULN_COUNT=$VULN_COUNT" >> $GITHUB_OUTPUT
         
         if [ "$VULN_COUNT" -eq 0 ]; then
-          echo "no vulns → reset"
+          echo "no vulns found"
+          # Only call secondary webhook if retries > 0 (meaning vulnerabilities were fixed)
+          if [ "$RETRIES" -gt 0 ]; then
+            echo "Vulnerabilities were present before and now fixed → call secondary webhook"
+            echo "SHOULD_CALL_SECONDARY=true" >> $GITHUB_OUTPUT
+          else
+            echo "New branch with zero vulns → skip secondary webhook"
+            echo "SHOULD_CALL_SECONDARY=false" >> $GITHUB_OUTPUT
+          fi
           echo "0" > $CACHE_FILE
-          echo "SHOULD_CALL_SECONDARY=true" >> $GITHUB_OUTPUT
           exit 0
         fi
+    
+        # If we reach here, we have vulnerabilities - don't call secondary webhook
+        echo "SHOULD_CALL_SECONDARY=false" >> $GITHUB_OUTPUT
     
         # Create Zapier payload
         BRANCH_B64=$(echo -n "$BRANCH" | base64 -w 0)
@@ -168,7 +179,7 @@ jobs:
     
       continue-on-error: false
     
-    # New step: Call secondary webhook when vulnerabilities are zero or retries >= 10
+    # New step: Call secondary webhook for clean/max-retry status
     - name: Call secondary webhook for clean/max-retry status
       if: always() && steps.zapier_step.outputs.SHOULD_CALL_SECONDARY == 'true'
       run: |
@@ -180,9 +191,9 @@ jobs:
         if [ "$RETRIES" -ge 10 ]; then
           REASON="max_retries_reached"
           MESSAGE="Maximum retry count (10) reached for branch $BRANCH"
-        elif [ "$VULN_COUNT" -eq 0 ] || [ ! -f trivy-maven-fs-vulnerabilities.csv ]; then
-          REASON="zero_vulnerabilities"
-          MESSAGE="No vulnerabilities found for branch $BRANCH"
+        elif [ "$VULN_COUNT" -eq 0 ] && [ "$RETRIES" -gt 0 ]; then
+          REASON="vulnerabilities_fixed"
+          MESSAGE="Vulnerabilities have been fixed for branch $BRANCH"
         else
           REASON="unknown"
           MESSAGE="Secondary webhook triggered"
@@ -199,11 +210,17 @@ jobs:
         )
         
         # Call the secondary webhook
-        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL_PR }}" \
-            -H "Content-Type: application/json" \
-            -d "$PAYLOAD"
+        WEBHOOK_URL="${{ secrets.ZAPIER_WEBHOOK_URL_PR }}"
         
-        echo "Secondary webhook called successfully"
+        if [ -z "$WEBHOOK_URL" ]; then
+          echo "Warning: ZAPIER_WEBHOOK_URL_PR is not set. Skipping secondary webhook call."
+        else
+          curl -X POST "$WEBHOOK_URL" \
+              -H "Content-Type: application/json" \
+              -d "$PAYLOAD"
+          
+          echo "Secondary webhook called successfully"
+        fi
       continue-on-error: true
     
     # Save with unique key per run to avoid collisions
@@ -211,7 +228,7 @@ jobs:
       if: always()
       uses: actions/cache/save@v4
       with:
-        path: .retry-${{ github.ref_name }}
+        path: .retry-*
         key: retry-${{ github.ref_name }}-${{ github.run_number }}-v1
       continue-on-error: true  # Don't fail the workflow if cache save fails
     
