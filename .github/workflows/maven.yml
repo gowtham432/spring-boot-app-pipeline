@@ -247,10 +247,10 @@ jobs:
           
           # List top critical/blocker issues
           cat sonar-issues.json | jq -r '.issues[] | select(.severity=="BLOCKER" or .severity=="CRITICAL") | "[\(.severity)] \(.type) - \(.rule)
-  File: \(.component | split(":")[1] // .component)
-  Line: \(.line // "N/A")
-  Message: \(.message)
-  ---"' 2>/dev/null >> sonarcloud-full-report.txt || echo "No critical or blocker issues found." >> sonarcloud-full-report.txt
+        File: \(.component | split(":")[1] // .component)
+        Line: \(.line // "N/A")
+        Message: \(.message)
+        ---"' 2>/dev/null >> sonarcloud-full-report.txt || echo "No critical or blocker issues found." >> sonarcloud-full-report.txt
           
           echo "" >> sonarcloud-full-report.txt
         fi
