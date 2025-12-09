@@ -21,6 +21,10 @@ public class DemoApplication {
 		// Bug: Potential null pointer
 		String name = null;
 		System.out.println(name.length()); // Will throw NullPointerException
+		
+		// Call utility methods with issues
+		String result = StringUtils.formatString(null, "Hello", "World", true, true, 10, "", false);
+		System.out.println(result);
 	}
 	
 	// Security vulnerability: SQL Injection
@@ -43,6 +47,47 @@ public class DemoApplication {
 		}
 	}
 	
+	// Using StringUtils - demonstrates calling utility class
+	@GetMapping("/format")
+	public String formatText(@RequestParam String text) {
+		return StringUtils.formatString(text, "[", "]", true, true, 100, "", false);
+	}
+	
+	@GetMapping("/validate")
+	public boolean validateEmail(@RequestParam String email) {
+		return StringUtils.validateInput(email, "email");
+	}
+	
+	@GetMapping("/average")
+	public double getAverage(@RequestParam List<Integer> numbers) {
+		return StringUtils.calculateAverage(numbers);
+	}
+	
+	@GetMapping("/file")
+	public String readFile(@RequestParam String filename) {
+		return StringUtils.readFile(filename); // Security: Path traversal
+	}
+	
+	@GetMapping("/timestamp")
+	public String getTimestamp() {
+		return StringUtils.getCurrentTimestamp();
+	}
+	
+	@GetMapping("/process")
+	public String processUser(
+		@RequestParam String username,
+		@RequestParam String email,
+		@RequestParam String phone,
+		@RequestParam String address
+	) {
+		return StringUtils.processUserData(username, email, phone, address);
+	}
+	
+	@GetMapping("/status")
+	public String getStatus(@RequestParam int code) {
+		return StringUtils.getStatusMessage(code);
+	}
+	
 	// Code smell: High complexity, code duplication, magic numbers
 	@GetMapping("/discount")
 	public double calculateDiscount(@RequestParam String type, @RequestParam double price) {
@@ -61,13 +106,20 @@ public class DemoApplication {
 	}
 	
 	// Code smell: Empty catch block
-	@GetMapping("/process")
-	public String process(@RequestParam String data) {
+	@GetMapping("/parse")
+	public String parseNumber(@RequestParam String value) {
 		try {
-			return data.toUpperCase();
+			int number = StringUtils.parseIntSafe(value);
+			return "Parsed: " + number;
 		} catch (Exception e) {
 			// Empty catch - code smell
 		}
 		return "";
+	}
+	
+	// Bug: Comparing strings incorrectly
+	@GetMapping("/compare")
+	public boolean compareTexts(@RequestParam String text1, @RequestParam String text2) {
+		return StringUtils.compareStrings(text1, text2);
 	}
 }
