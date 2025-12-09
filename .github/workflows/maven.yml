@@ -97,7 +97,16 @@ jobs:
               "https://sonarcloud.io/api/issues/search?componentKeys=${COMPONENT_KEY}&resolved=false&ps=500" \
               -o "sonar-file-reports/${SAFE_FILENAME}_issues.json" 2>/dev/null || echo "Failed to fetch issues for $JAVA_FILE"
             
-            echo "Saved issues to: sonar-file-reports/${SAFE_FILENAME}_issues.json"
+            if [ -f "sonar-file-reports/${SAFE_FILENAME}_issues.json" ]; then
+              ISSUE_COUNT=$(cat "sonar-file-reports/${SAFE_FILENAME}_issues.json" | jq '.issues | length' 2>/dev/null || echo "0")
+              
+              if [ "$ISSUE_COUNT" -gt 0 ]; then
+                cat "sonar-file-reports/${SAFE_FILENAME}_issues.json" | jq -r '.issues[] | "[" + .severity + "] " + .type + " - " + .rule + "\nFile: " + .component + "\nLine: " + (.line // "N/A" | tostring) + "\nMessage: " + .message + "\n---"' > "sonar-file-reports/${SAFE_FILENAME}_issues.txt"
+                echo "Created issues file with $ISSUE_COUNT issues: sonar-file-reports/${SAFE_FILENAME}_issues.txt"
+              else
+                echo "No issues found for $JAVA_FILE"
+              fi
+            fi
           done
         continue-on-error: true
       
@@ -106,7 +115,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sonarcloud-issues
-          path: sonar-file-reports/
+          path: sonar-file-reports/*_issues.txt
       
       - name: Send issues to Zapier with retry logic
         if: always() && github.event_name != 'pull_request'
@@ -116,13 +125,13 @@ jobs:
           SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
           MAX_RETRIES=5
           
-          if [ ! -d "sonar-file-reports" ] || [ -z "$(ls -A sonar-file-reports/*_issues.json 2>/dev/null)" ]; then
+          if [ ! -d "sonar-file-reports" ] || [ -z "$(ls -A sonar-file-reports/*_issues.txt 2>/dev/null)" ]; then
             echo "No SonarCloud issues found to send"
             exit 0
           fi
           
-          for ISSUES_FILE in sonar-file-reports/*_issues.json; do
-            FILENAME=$(basename "$ISSUES_FILE" _issues.json)
+          for ISSUES_FILE in sonar-file-reports/*_issues.txt; do
+            FILENAME=$(basename "$ISSUES_FILE" _issues.txt)
             CACHE_FILE=".retry-sonar-${SAFE_BRANCH}-${FILENAME}"
             
             echo "=================================================="
@@ -142,14 +151,6 @@ jobs:
               continue
             fi
             
-            ISSUE_COUNT=$(cat "$ISSUES_FILE" | jq '.issues | length' 2>/dev/null || echo "0")
-            
-            if [ "$ISSUE_COUNT" -eq 0 ] 2>/dev/null; then
-              echo "No issues in $FILENAME - skipping"
-              echo "0" > $CACHE_FILE
-              continue
-            fi
-            
             JAVA_FILENAME=$(echo "$FILENAME" | tr '_' '/' | sed 's/$/.java/')
             JAVA_FULL_PATH="src/main/java/${JAVA_FILENAME}"
             
@@ -160,12 +161,14 @@ jobs:
               echo "WARNING: Source file not found: $JAVA_FULL_PATH"
             fi
             
+            ISSUE_COUNT=$(grep -c "^\[" "$ISSUES_FILE" 2>/dev/null || echo "0")
+            
             echo "Sending to Zapier: $JAVA_FILENAME (SHA: $FILE_SHA, Issues: $ISSUE_COUNT)"
             
             ISSUES_CONTENT=$(cat "$ISSUES_FILE")
             
             PAYLOAD=$(jq -n \
-              --argjson issues "$ISSUES_CONTENT" \
+              --arg issues "$ISSUES_CONTENT" \
               --arg filename "$JAVA_FILENAME" \
               --arg branch "$BRANCH" \
               --arg file_sha "$FILE_SHA" \
