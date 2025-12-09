@@ -117,44 +117,28 @@ jobs:
           name: sonarcloud-issues
           path: sonar-file-reports/*_issues.txt
       
-      - name: Send issues to Zapier with retry logic
+      - name: Send issues to Zapier (no retry logic)
         if: always() && github.event_name != 'pull_request'
         id: zapier_sonar_files
         run: |
           BRANCH="${{ github.ref_name }}"
-          SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
-          MAX_RETRIES=5
-          
+
           if [ ! -d "sonar-file-reports" ] || [ -z "$(ls -A sonar-file-reports/*_issues.txt 2>/dev/null)" ]; then
             echo "No SonarCloud issues found to send"
             exit 0
           fi
-          
+
           for ISSUES_FILE in sonar-file-reports/*_issues.txt; do
             FILENAME=$(basename "$ISSUES_FILE" _issues.txt)
-            CACHE_FILE=".retry-sonar-${SAFE_BRANCH}-${FILENAME}"
-            
+
             echo "=================================================="
             echo "Processing: $FILENAME"
             echo "=================================================="
-            
-            if [ -f $CACHE_FILE ]; then
-              RETRIES=$(cat $CACHE_FILE)
-            else
-              RETRIES=0
-            fi
-            
-            echo "Current retries for $FILENAME: $RETRIES"
-            
-            if [ "$RETRIES" -ge $MAX_RETRIES ]; then
-              echo "Max retries ($MAX_RETRIES) reached for $FILENAME - skipping"
-              continue
-            fi
-            
+
             JAVA_FILENAME=$(echo "$FILENAME" | tr '_' '/' | sed 's/$/.java/')
             JAVA_FULL_PATH="src/main/java/${JAVA_FILENAME}"
             JUST_FILE_NAME=$(basename "$JAVA_FULL_PATH")
-            
+
             if [ -f "$JAVA_FULL_PATH" ]; then
               FILE_SHA=$(git hash-object "$JAVA_FULL_PATH" 2>/dev/null || echo "unknown")
               FILE_CONTENT=$(cat "$JAVA_FULL_PATH")
@@ -163,13 +147,12 @@ jobs:
               FILE_CONTENT=""
               echo "WARNING: Source file not found: $JAVA_FULL_PATH"
             fi
-            
+
             ISSUE_COUNT=$(grep -c "^\[" "$ISSUES_FILE" 2>/dev/null || echo "0")
-            
-            echo "Sending to Zapier: $JAVA_FILENAME (SHA: $FILE_SHA, Issues: $ISSUE_COUNT)"
-            
             ISSUES_CONTENT=$(cat "$ISSUES_FILE")
-            
+
+            echo "Sending to Zapier: $JUST_FILE_NAME (Issues: $ISSUE_COUNT)"
+
             PAYLOAD=$(jq -n \
               --arg issues "$ISSUES_CONTENT" \
               --arg filename "$JAVA_FILENAME" \
@@ -189,38 +172,26 @@ jobs:
               }'
             )
 
-            
             HTTP_STATUS=$(curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL_SONAR }}" \
               -H "Content-Type: application/json" \
               -d "$PAYLOAD" \
               -w "%{http_code}" \
               -o /tmp/zapier_response.txt \
               -s)
-            
+
             echo "Zapier response code: $HTTP_STATUS"
-            
-            if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 201 ]; then
-              echo "Successfully sent $FILENAME to Zapier"
-              echo "0" > $CACHE_FILE
-            else
-              echo "Failed to send $FILENAME (HTTP $HTTP_STATUS)"
-              NEW_RETRIES=$((RETRIES + 1))
-              echo "$NEW_RETRIES" > $CACHE_FILE
-              echo "Updated retry count to $NEW_RETRIES for $FILENAME"
-              
-              if [ "$NEW_RETRIES" -ge $MAX_RETRIES ]; then
-                echo "WARNING: $FILENAME has reached max retries and will be skipped in future runs"
-              fi
+
+            if [ "$HTTP_STATUS" -ne 200 ] && [ "$HTTP_STATUS" -ne 201 ]; then
+              echo "ERROR: Failed to send $JUST_FILE_NAME (HTTP $HTTP_STATUS)"
             fi
-            
+
             sleep 2
           done
-          
+
           echo "=================================================="
-          echo "Finished processing all SonarCloud issues"
+          echo "Finished sending SonarCloud issues to Zapier"
           echo "=================================================="
-        continue-on-error: true
-      
+
       - name: Save retry counters for SonarCloud files
         if: always()
         uses: actions/cache/save@v4
