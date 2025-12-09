@@ -42,22 +42,35 @@ jobs:
         key: ${{ runner.os }}-sonar
         restore-keys: ${{ runner.os }}-sonar
     
+    - name: Verify project structure
+      run: |
+        echo "=== Project Structure ==="
+        ls -la
+        echo "=== POM.xml content ==="
+        cat pom.xml
+        echo "=== Source files ==="
+        find src -name "*.java" -type f || echo "No Java files found"
+    
     - name: Build with Maven
-      run: mvn -B package -DskipTests --file pom.xml
+      run: mvn clean install -DskipTests
     
     - name: Run Tests
-      run: mvn test --file pom.xml
+      run: mvn test
       continue-on-error: true
     
-    - name: SonarCloud Scan
+    - name: SonarCloud Scan (using Action)
+      uses: SonarSource/sonarcloud-github-action@master
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      run: |
-        mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
-          -Dsonar.projectKey=gowtham432_spring-boot-app-pipeline \
-          -Dsonar.organization=gowtham432 \
-          -Dsonar.host.url=https://sonarcloud.io
+      with:
+        args: >
+          -Dsonar.projectKey=gowtham432_spring-boot-app-pipeline
+          -Dsonar.organization=gowtham432
+          -Dsonar.sources=src/main/java
+          -Dsonar.java.binaries=target/classes
+          -Dsonar.tests=src/test/java
+          -Dsonar.java.source=21
       continue-on-error: true
     
     - name: Wait for SonarCloud analysis
@@ -234,10 +247,10 @@ jobs:
           
           # List top critical/blocker issues
           cat sonar-issues.json | jq -r '.issues[] | select(.severity=="BLOCKER" or .severity=="CRITICAL") | "[\(.severity)] \(.type) - \(.rule)
-        File: \(.component | split(":")[1] // .component)
-        Line: \(.line // "N/A")
-        Message: \(.message)
-        ---"' 2>/dev/null >> sonarcloud-full-report.txt || echo "No critical or blocker issues found." >> sonarcloud-full-report.txt
+  File: \(.component | split(":")[1] // .component)
+  Line: \(.line // "N/A")
+  Message: \(.message)
+  ---"' 2>/dev/null >> sonarcloud-full-report.txt || echo "No critical or blocker issues found." >> sonarcloud-full-report.txt
           
           echo "" >> sonarcloud-full-report.txt
         fi
