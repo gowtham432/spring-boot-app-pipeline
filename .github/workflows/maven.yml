@@ -1,8 +1,11 @@
 name: Java CI with Maven
 on:
   push:
+    branches:
+      - '**'  # Trigger on all branches
   pull_request:
-    branches: [ "master" ]
+    branches:
+      - '**'  # Trigger on PRs to all branches
 env:
   IMAGE_NAME:  ghcr.io/gowtham432/spring-boot-app-pipeline
   IMAGE_TAG: ${{ github.run_number }}
@@ -71,6 +74,7 @@ jobs:
           -Dsonar.java.binaries=target/classes
           -Dsonar.tests=src/test/java
           -Dsonar.java.source=21
+          -Dsonar.branch.name=${{ github.ref_name }}
       continue-on-error: true
     
     - name: Wait for SonarCloud analysis
