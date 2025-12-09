@@ -1,4 +1,4 @@
-name: Java CI with Maven
+=name: Java CI with Maven
 
 on:
   push:
@@ -153,11 +153,14 @@ jobs:
             
             JAVA_FILENAME=$(echo "$FILENAME" | tr '_' '/' | sed 's/$/.java/')
             JAVA_FULL_PATH="src/main/java/${JAVA_FILENAME}"
+            JUST_FILE_NAME=$(basename "$JAVA_FULL_PATH")
             
             if [ -f "$JAVA_FULL_PATH" ]; then
               FILE_SHA=$(git hash-object "$JAVA_FULL_PATH" 2>/dev/null || echo "unknown")
+              FILE_CONTENT=$(cat "$JAVA_FULL_PATH")
             else
               FILE_SHA="file_not_found"
+              FILE_CONTENT=""
               echo "WARNING: Source file not found: $JAVA_FULL_PATH"
             fi
             
@@ -170,15 +173,22 @@ jobs:
             PAYLOAD=$(jq -n \
               --arg issues "$ISSUES_CONTENT" \
               --arg filename "$JAVA_FILENAME" \
+              --arg full_path "$JAVA_FULL_PATH" \
+              --arg file_name "$JUST_FILE_NAME" \
+              --arg file_content "$FILE_CONTENT" \
               --arg branch "$BRANCH" \
               --arg file_sha "$FILE_SHA" \
               '{
                 sonar_issues: $issues,
                 java_filename: $filename,
+                java_full_path: $full_path,
+                java_file_name: $file_name,
+                java_file_content: $file_content,
                 branch: $branch,
                 file_sha: $file_sha
               }'
             )
+
             
             HTTP_STATUS=$(curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL_SONAR }}" \
               -H "Content-Type: application/json" \
