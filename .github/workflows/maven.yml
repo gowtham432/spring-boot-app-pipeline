@@ -154,7 +154,7 @@ jobs:
             # If no issues, reset retry counter
             if [ "$ISSUE_COUNT" -eq 0 ]; then
               echo "✅ $JUST_FILE_NAME: No issues - retry count = 0/$MAX_RETRIES"
-              cp "$ISSUES_FILE" "sonar-file-reports-with-retry/${FILENAME}_retry_0_issues.txt"
+              # Don't create a file with retry count if there are no issues
               continue
             fi
             
@@ -184,12 +184,20 @@ jobs:
             JAVA_FULL_PATH="src/main/java/${JAVA_FILENAME}"
             JUST_FILE_NAME=$(basename "$JAVA_FULL_PATH")
 
-            echo "📄 File: $JUST_FILE_NAME | Retry count: $CURRENT_RETRY/$MAX_RETRIES"
+            ISSUE_COUNT=$(grep -c "^\[" "$ISSUES_FILE" 2>/dev/null || echo "0")
+            
+            # If no issues, don't create artifact and skip
+            if [ "$ISSUE_COUNT" -eq 0 ]; then
+              echo "✅ No issues in $JUST_FILE_NAME - issues resolved!"
+              continue
+            fi
+
+            echo "📄 File: $JUST_FILE_NAME | Retry count: $CURRENT_RETRY/$MAX_RETRIES | Issues: $ISSUE_COUNT"
 
             # Check if max retries reached
             if [ "$CURRENT_RETRY" -ge $MAX_RETRIES ]; then
-              echo "⛔ Max retries ($MAX_RETRIES) reached for $JUST_FILE_NAME - skipping"
-              # Still save the file with max retry count
+              echo "⛔ Max retries ($MAX_RETRIES) reached for $JUST_FILE_NAME - skipping Zapier send"
+              # Still save the file with max retry count for tracking
               cp "$ISSUES_FILE" "sonar-file-reports-with-retry/${FILENAME}_retry_${CURRENT_RETRY}_issues.txt"
               continue
             fi
@@ -202,19 +210,10 @@ jobs:
               FILE_CONTENT=""
               echo "⚠️  WARNING: Source file not found: $JAVA_FULL_PATH"
             fi
-
-            ISSUE_COUNT=$(grep -c "^\[" "$ISSUES_FILE" 2>/dev/null || echo "0")
-            
-            # If no issues, reset retry counter
-            if [ "$ISSUE_COUNT" -eq 0 ]; then
-              echo "✅ No issues in $JUST_FILE_NAME - resetting retry counter"
-              cp "$ISSUES_FILE" "sonar-file-reports-with-retry/${FILENAME}_retry_0_issues.txt"
-              continue
-            fi
             
             ISSUES_CONTENT=$(cat "$ISSUES_FILE")
 
-            echo "🚀 Sending to Zapier: $JUST_FILE_NAME (Issues: $ISSUE_COUNT, Attempt: $((CURRENT_RETRY + 1))/$MAX_RETRIES)"
+            echo "🚀 Sending to Zapier: $JUST_FILE_NAME (Issues: $ISSUE_COUNT, Send attempt: $((CURRENT_RETRY + 1))/$((MAX_RETRIES + 1)))"
 
             PAYLOAD=$(jq -n \
               --arg issues "$ISSUES_CONTENT" \
@@ -248,19 +247,19 @@ jobs:
 
             if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 201 ]; then
               echo "✅ Successfully sent $JUST_FILE_NAME to Zapier"
-              # Save with retry count 0 (success)
-              cp "$ISSUES_FILE" "sonar-file-reports-with-retry/${FILENAME}_retry_0_issues.txt"
-              echo "📄 $JUST_FILE_NAME: Retry count reset to 0"
-            else
-              echo "❌ Failed to send $JUST_FILE_NAME (HTTP $HTTP_STATUS)"
+              # Increment retry count even on success - we'll keep sending until issues are fixed
               NEW_RETRY=$((CURRENT_RETRY + 1))
-              # Save with incremented retry count
               cp "$ISSUES_FILE" "sonar-file-reports-with-retry/${FILENAME}_retry_${NEW_RETRY}_issues.txt"
-              echo "📄 $JUST_FILE_NAME: Retry count updated to $NEW_RETRY/$MAX_RETRIES"
+              echo "📄 $JUST_FILE_NAME: Retry count incremented to $NEW_RETRY/$MAX_RETRIES"
               
               if [ "$NEW_RETRY" -ge $MAX_RETRIES ]; then
-                echo "⚠️  WARNING: $JUST_FILE_NAME has reached max retries ($MAX_RETRIES) and will be skipped in future runs"
+                echo "⚠️  WARNING: $JUST_FILE_NAME has reached max retries ($MAX_RETRIES) - will not be sent again until issues are fixed"
               fi
+            else
+              echo "❌ Failed to send $JUST_FILE_NAME to Zapier (HTTP $HTTP_STATUS)"
+              # Keep the same retry count if Zapier fails - we'll try again
+              cp "$ISSUES_FILE" "sonar-file-reports-with-retry/${FILENAME}_retry_${CURRENT_RETRY}_issues.txt"
+              echo "📄 $JUST_FILE_NAME: Retry count remains at $CURRENT_RETRY/$MAX_RETRIES (will retry next run)"
             fi
 
             sleep 2
@@ -272,23 +271,25 @@ jobs:
           echo "=================================================="
           
           # Display final retry counts from saved filenames
-          for RETRY_FILE in sonar-file-reports-with-retry/*_retry_*_issues.txt; do
-            if [ -f "$RETRY_FILE" ]; then
-              FILENAME=$(basename "$RETRY_FILE")
-              RETRY_COUNT=$(echo "$FILENAME" | sed -n 's/.*_retry_\([0-9]*\)_issues.txt/\1/p')
-              BASE_NAME=$(echo "$FILENAME" | sed 's/_retry_[0-9]*_issues.txt//')
-              JAVA_FILENAME=$(echo "$BASE_NAME" | tr '_' '/' | sed 's/$/.java/')
-              JUST_FILE_NAME=$(basename "src/main/java/${JAVA_FILENAME}")
-              
-              if [ "$RETRY_COUNT" -eq 0 ]; then
-                echo "✅ $JUST_FILE_NAME: Retry count = $RETRY_COUNT/$MAX_RETRIES"
-              elif [ "$RETRY_COUNT" -ge $MAX_RETRIES ]; then
-                echo "⛔ $JUST_FILE_NAME: Retry count = $RETRY_COUNT/$MAX_RETRIES (MAX REACHED)"
-              else
-                echo "⚠️  $JUST_FILE_NAME: Retry count = $RETRY_COUNT/$MAX_RETRIES"
+          if [ -d "sonar-file-reports-with-retry" ] && [ -n "$(ls -A sonar-file-reports-with-retry/ 2>/dev/null)" ]; then
+            for RETRY_FILE in sonar-file-reports-with-retry/*_retry_*_issues.txt; do
+              if [ -f "$RETRY_FILE" ]; then
+                FILENAME=$(basename "$RETRY_FILE")
+                RETRY_COUNT=$(echo "$FILENAME" | sed -n 's/.*_retry_\([0-9]*\)_issues.txt/\1/p')
+                BASE_NAME=$(echo "$FILENAME" | sed 's/_retry_[0-9]*_issues.txt//')
+                JAVA_FILENAME=$(echo "$BASE_NAME" | tr '_' '/' | sed 's/$/.java/')
+                JUST_FILE_NAME=$(basename "src/main/java/${JAVA_FILENAME}")
+                
+                if [ "$RETRY_COUNT" -ge $MAX_RETRIES ]; then
+                  echo "⛔ $JUST_FILE_NAME: Retry count = $RETRY_COUNT/$MAX_RETRIES (MAX REACHED - waiting for fixes)"
+                else
+                  echo "⚠️  $JUST_FILE_NAME: Retry count = $RETRY_COUNT/$MAX_RETRIES (will send again next run)"
+                fi
               fi
-            fi
-          done
+            done
+          else
+            echo "✅ No files with pending issues!"
+          fi
           
           echo "=================================================="
           echo "Finished sending SonarCloud issues to Zapier"
@@ -300,4 +301,5 @@ jobs:
         with:
           name: sonarcloud-issues-with-retry
           path: sonar-file-reports-with-retry/*_retry_*_issues.txt
+          if_no_artifact_found: ignore
           retention-days: 30
