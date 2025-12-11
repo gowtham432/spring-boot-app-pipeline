@@ -25,14 +25,14 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: Restore retry counter
+      - name: Restore retry counters
         id: cache-restore
         uses: actions/cache/restore@v4
         with:
-          path: .retry-*
-          key: retry-${{ github.ref_name }}-${{ github.run_number }}-v1
+          path: .retry-sonar-*
+          key: retry-sonar-${{ github.ref_name }}-${{ github.run_number }}-v1
           restore-keys: |
-            retry-${{ github.ref_name }}-
+            retry-sonar-${{ github.ref_name }}-
       
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -117,27 +117,68 @@ jobs:
           name: sonarcloud-issues
           path: sonar-file-reports/*_issues.txt
       
-      - name: Send issues to Zapier (no retry logic)
+      - name: Send issues to Zapier with retry logic (max 2 attempts)
         if: always() && github.event_name != 'pull_request'
         id: zapier_sonar_files
         run: |
           BRANCH="${{ github.ref_name }}"
+          SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
+          MAX_RETRIES=2
 
           if [ ! -d "sonar-file-reports" ] || [ -z "$(ls -A sonar-file-reports/*_issues.txt 2>/dev/null)" ]; then
             echo "No SonarCloud issues found to send"
             exit 0
           fi
 
+          echo "=================================================="
+          echo "RETRY STATUS SUMMARY"
+          echo "=================================================="
+          
+          # Display retry counts for all files first
           for ISSUES_FILE in sonar-file-reports/*_issues.txt; do
             FILENAME=$(basename "$ISSUES_FILE" _issues.txt)
+            CACHE_FILE=".retry-sonar-${SAFE_BRANCH}-${FILENAME}"
+            JAVA_FILENAME=$(echo "$FILENAME" | tr '_' '/' | sed 's/$/.java/')
+            JUST_FILE_NAME=$(basename "src/main/java/${JAVA_FILENAME}")
+            
+            if [ -f $CACHE_FILE ]; then
+              RETRIES=$(cat $CACHE_FILE)
+            else
+              RETRIES=0
+            fi
+            
+            echo "📄 $JUST_FILE_NAME: Retry count = $RETRIES/$MAX_RETRIES"
+          done
+          
+          echo "=================================================="
+          echo ""
+
+          for ISSUES_FILE in sonar-file-reports/*_issues.txt; do
+            FILENAME=$(basename "$ISSUES_FILE" _issues.txt)
+            CACHE_FILE=".retry-sonar-${SAFE_BRANCH}-${FILENAME}"
 
             echo "=================================================="
             echo "Processing: $FILENAME"
             echo "=================================================="
 
+            # Get retry count for this specific file
+            if [ -f $CACHE_FILE ]; then
+              RETRIES=$(cat $CACHE_FILE)
+            else
+              RETRIES=0
+            fi
+
             JAVA_FILENAME=$(echo "$FILENAME" | tr '_' '/' | sed 's/$/.java/')
             JAVA_FULL_PATH="src/main/java/${JAVA_FILENAME}"
             JUST_FILE_NAME=$(basename "$JAVA_FULL_PATH")
+
+            echo "📄 File: $JUST_FILE_NAME | Retry count: $RETRIES/$MAX_RETRIES"
+
+            # Check if max retries reached
+            if [ "$RETRIES" -ge $MAX_RETRIES ]; then
+              echo "⛔ Max retries ($MAX_RETRIES) reached for $JUST_FILE_NAME - skipping"
+              continue
+            fi
 
             if [ -f "$JAVA_FULL_PATH" ]; then
               FILE_SHA=$(git hash-object "$JAVA_FULL_PATH" 2>/dev/null || echo "unknown")
@@ -145,13 +186,21 @@ jobs:
             else
               FILE_SHA="file_not_found"
               FILE_CONTENT=""
-              echo "WARNING: Source file not found: $JAVA_FULL_PATH"
+              echo "⚠️  WARNING: Source file not found: $JAVA_FULL_PATH"
             fi
 
             ISSUE_COUNT=$(grep -c "^\[" "$ISSUES_FILE" 2>/dev/null || echo "0")
+            
+            # If no issues, reset retry counter
+            if [ "$ISSUE_COUNT" -eq 0 ]; then
+              echo "✅ No issues in $JUST_FILE_NAME - resetting retry counter"
+              echo "0" > $CACHE_FILE
+              continue
+            fi
+            
             ISSUES_CONTENT=$(cat "$ISSUES_FILE")
 
-            echo "Sending to Zapier: $JUST_FILE_NAME (Issues: $ISSUE_COUNT)"
+            echo "🚀 Sending to Zapier: $JUST_FILE_NAME (Issues: $ISSUE_COUNT, Attempt: $((RETRIES + 1))/$MAX_RETRIES)"
 
             PAYLOAD=$(jq -n \
               --arg issues "$ISSUES_CONTENT" \
@@ -161,6 +210,7 @@ jobs:
               --arg file_content "$FILE_CONTENT" \
               --arg branch "$BRANCH" \
               --arg file_sha "$FILE_SHA" \
+              --arg retry_count "$RETRIES" \
               '{
                 sonar_issues: $issues,
                 java_filename: $filename,
@@ -168,7 +218,8 @@ jobs:
                 java_file_name: $file_name,
                 java_file_content: $file_content,
                 branch: $branch,
-                file_sha: $file_sha
+                file_sha: $file_sha,
+                retry_count: $retry_count
               }'
             )
 
@@ -179,20 +230,58 @@ jobs:
               -o /tmp/zapier_response.txt \
               -s)
 
-            echo "Zapier response code: $HTTP_STATUS"
+            echo "📡 Zapier response code: $HTTP_STATUS"
 
-            if [ "$HTTP_STATUS" -ne 200 ] && [ "$HTTP_STATUS" -ne 201 ]; then
-              echo "ERROR: Failed to send $JUST_FILE_NAME (HTTP $HTTP_STATUS)"
+            if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 201 ]; then
+              echo "✅ Successfully sent $JUST_FILE_NAME to Zapier"
+              echo "0" > $CACHE_FILE  # Reset on success
+              echo "📄 $JUST_FILE_NAME: Retry count reset to 0"
+            else
+              echo "❌ Failed to send $JUST_FILE_NAME (HTTP $HTTP_STATUS)"
+              NEW_RETRIES=$((RETRIES + 1))
+              echo "$NEW_RETRIES" > $CACHE_FILE
+              echo "📄 $JUST_FILE_NAME: Retry count updated to $NEW_RETRIES/$MAX_RETRIES"
+              
+              if [ "$NEW_RETRIES" -ge $MAX_RETRIES ]; then
+                echo "⚠️  WARNING: $JUST_FILE_NAME has reached max retries ($MAX_RETRIES) and will be skipped in future runs"
+              fi
             fi
 
             sleep 2
           done
 
+          echo ""
+          echo "=================================================="
+          echo "FINAL RETRY STATUS"
+          echo "=================================================="
+          
+          # Display final retry counts for all files
+          for ISSUES_FILE in sonar-file-reports/*_issues.txt; do
+            FILENAME=$(basename "$ISSUES_FILE" _issues.txt)
+            CACHE_FILE=".retry-sonar-${SAFE_BRANCH}-${FILENAME}"
+            JAVA_FILENAME=$(echo "$FILENAME" | tr '_' '/' | sed 's/$/.java/')
+            JUST_FILE_NAME=$(basename "src/main/java/${JAVA_FILENAME}")
+            
+            if [ -f $CACHE_FILE ]; then
+              RETRIES=$(cat $CACHE_FILE)
+            else
+              RETRIES=0
+            fi
+            
+            if [ "$RETRIES" -eq 0 ]; then
+              echo "✅ $JUST_FILE_NAME: Retry count = $RETRIES/$MAX_RETRIES"
+            elif [ "$RETRIES" -ge $MAX_RETRIES ]; then
+              echo "⛔ $JUST_FILE_NAME: Retry count = $RETRIES/$MAX_RETRIES (MAX REACHED)"
+            else
+              echo "⚠️  $JUST_FILE_NAME: Retry count = $RETRIES/$MAX_RETRIES"
+            fi
+          done
+          
           echo "=================================================="
           echo "Finished sending SonarCloud issues to Zapier"
           echo "=================================================="
-
-      - name: Save retry counters for SonarCloud files
+      
+      - name: Save retry counters
         if: always()
         uses: actions/cache/save@v4
         with:
