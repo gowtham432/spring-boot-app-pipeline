@@ -29,7 +29,7 @@ jobs:
         id: cache-restore
         uses: actions/cache/restore@v4
         with:
-          path: .retry-sonar-*
+          path: .retry-cache
           key: retry-sonar-${{ github.ref_name }}-v1
           restore-keys: |
             retry-sonar-${{ github.ref_name }}-
@@ -124,9 +124,12 @@ jobs:
           BRANCH="${{ github.ref_name }}"
           SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
           MAX_RETRIES=2
+          
+          # Create cache directory
+          mkdir -p .retry-cache
 
           echo "🔍 DEBUG: Checking for existing retry files..."
-          ls -la .retry-sonar-* 2>/dev/null || echo "No retry files found yet"
+          ls -la .retry-cache/ 2>/dev/null || echo "No retry files found yet"
           echo ""
 
           if [ ! -d "sonar-file-reports" ] || [ -z "$(ls -A sonar-file-reports/*_issues.txt 2>/dev/null)" ]; then
@@ -141,7 +144,7 @@ jobs:
           # Display retry counts for all files first
           for ISSUES_FILE in sonar-file-reports/*_issues.txt; do
             FILENAME=$(basename "$ISSUES_FILE" _issues.txt)
-            CACHE_FILE=".retry-sonar-${SAFE_BRANCH}-${FILENAME}"
+            CACHE_FILE=".retry-cache/${SAFE_BRANCH}-${FILENAME}"
             JAVA_FILENAME=$(echo "$FILENAME" | tr '_' '/' | sed 's/$/.java/')
             JUST_FILE_NAME=$(basename "src/main/java/${JAVA_FILENAME}")
             
@@ -161,7 +164,7 @@ jobs:
 
           for ISSUES_FILE in sonar-file-reports/*_issues.txt; do
             FILENAME=$(basename "$ISSUES_FILE" _issues.txt)
-            CACHE_FILE=".retry-sonar-${SAFE_BRANCH}-${FILENAME}"
+            CACHE_FILE=".retry-cache/${SAFE_BRANCH}-${FILENAME}"
 
             echo "=================================================="
             echo "Processing: $FILENAME"
@@ -263,7 +266,7 @@ jobs:
 
           echo ""
           echo "🔍 DEBUG: Final retry files created:"
-          ls -la .retry-sonar-* 2>/dev/null || echo "No retry files found"
+          ls -la .retry-cache/ 2>/dev/null || echo "No retry files found"
           echo ""
           
           echo "=================================================="
@@ -273,7 +276,7 @@ jobs:
           # Display final retry counts for all files
           for ISSUES_FILE in sonar-file-reports/*_issues.txt; do
             FILENAME=$(basename "$ISSUES_FILE" _issues.txt)
-            CACHE_FILE=".retry-sonar-${SAFE_BRANCH}-${FILENAME}"
+            CACHE_FILE=".retry-cache/${SAFE_BRANCH}-${FILENAME}"
             JAVA_FILENAME=$(echo "$FILENAME" | tr '_' '/' | sed 's/$/.java/')
             JUST_FILE_NAME=$(basename "src/main/java/${JAVA_FILENAME}")
             
@@ -300,5 +303,5 @@ jobs:
         if: always()
         uses: actions/cache/save@v4
         with:
-          path: .retry-sonar-*
+          path: .retry-cache
           key: retry-sonar-${{ github.ref_name }}-v1-${{ github.run_number }}
