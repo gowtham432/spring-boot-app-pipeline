@@ -30,7 +30,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .retry-sonar-*
-          key: retry-sonar-${{ github.ref_name }}-${{ github.run_number }}-v1
+          key: retry-sonar-${{ github.ref_name }}-v1
           restore-keys: |
             retry-sonar-${{ github.ref_name }}-
       
@@ -125,6 +125,10 @@ jobs:
           SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
           MAX_RETRIES=2
 
+          echo "🔍 DEBUG: Checking for existing retry files..."
+          ls -la .retry-sonar-* 2>/dev/null || echo "No retry files found yet"
+          echo ""
+
           if [ ! -d "sonar-file-reports" ] || [ -z "$(ls -A sonar-file-reports/*_issues.txt 2>/dev/null)" ]; then
             echo "No SonarCloud issues found to send"
             exit 0
@@ -141,10 +145,12 @@ jobs:
             JAVA_FILENAME=$(echo "$FILENAME" | tr '_' '/' | sed 's/$/.java/')
             JUST_FILE_NAME=$(basename "src/main/java/${JAVA_FILENAME}")
             
-            if [ -f $CACHE_FILE ]; then
-              RETRIES=$(cat $CACHE_FILE)
+            if [ -f "$CACHE_FILE" ]; then
+              RETRIES=$(cat "$CACHE_FILE")
+              echo "🔍 DEBUG: Found $CACHE_FILE with value: $RETRIES"
             else
               RETRIES=0
+              echo "🔍 DEBUG: No cache file found for $CACHE_FILE, starting at 0"
             fi
             
             echo "📄 $JUST_FILE_NAME: Retry count = $RETRIES/$MAX_RETRIES"
@@ -162,10 +168,12 @@ jobs:
             echo "=================================================="
 
             # Get retry count for this specific file
-            if [ -f $CACHE_FILE ]; then
-              RETRIES=$(cat $CACHE_FILE)
+            if [ -f "$CACHE_FILE" ]; then
+              RETRIES=$(cat "$CACHE_FILE")
+              echo "🔍 DEBUG: Reading retry count from $CACHE_FILE: $RETRIES"
             else
               RETRIES=0
+              echo "🔍 DEBUG: No cache file, starting at 0"
             fi
 
             JAVA_FILENAME=$(echo "$FILENAME" | tr '_' '/' | sed 's/$/.java/')
@@ -194,7 +202,8 @@ jobs:
             # If no issues, reset retry counter
             if [ "$ISSUE_COUNT" -eq 0 ]; then
               echo "✅ No issues in $JUST_FILE_NAME - resetting retry counter"
-              echo "0" > $CACHE_FILE
+              echo "0" > "$CACHE_FILE"
+              echo "🔍 DEBUG: Written 0 to $CACHE_FILE"
               continue
             fi
             
@@ -234,12 +243,14 @@ jobs:
 
             if [ "$HTTP_STATUS" -eq 200 ] || [ "$HTTP_STATUS" -eq 201 ]; then
               echo "✅ Successfully sent $JUST_FILE_NAME to Zapier"
-              echo "0" > $CACHE_FILE  # Reset on success
+              echo "0" > "$CACHE_FILE"
+              echo "🔍 DEBUG: Reset retry count to 0 in $CACHE_FILE"
               echo "📄 $JUST_FILE_NAME: Retry count reset to 0"
             else
               echo "❌ Failed to send $JUST_FILE_NAME (HTTP $HTTP_STATUS)"
               NEW_RETRIES=$((RETRIES + 1))
-              echo "$NEW_RETRIES" > $CACHE_FILE
+              echo "$NEW_RETRIES" > "$CACHE_FILE"
+              echo "🔍 DEBUG: Written $NEW_RETRIES to $CACHE_FILE"
               echo "📄 $JUST_FILE_NAME: Retry count updated to $NEW_RETRIES/$MAX_RETRIES"
               
               if [ "$NEW_RETRIES" -ge $MAX_RETRIES ]; then
@@ -251,6 +262,10 @@ jobs:
           done
 
           echo ""
+          echo "🔍 DEBUG: Final retry files created:"
+          ls -la .retry-sonar-* 2>/dev/null || echo "No retry files found"
+          echo ""
+          
           echo "=================================================="
           echo "FINAL RETRY STATUS"
           echo "=================================================="
@@ -262,8 +277,8 @@ jobs:
             JAVA_FILENAME=$(echo "$FILENAME" | tr '_' '/' | sed 's/$/.java/')
             JUST_FILE_NAME=$(basename "src/main/java/${JAVA_FILENAME}")
             
-            if [ -f $CACHE_FILE ]; then
-              RETRIES=$(cat $CACHE_FILE)
+            if [ -f "$CACHE_FILE" ]; then
+              RETRIES=$(cat "$CACHE_FILE")
             else
               RETRIES=0
             fi
@@ -286,4 +301,4 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .retry-sonar-*
-          key: retry-sonar-${{ github.ref_name }}-${{ github.run_number }}-v1
+          key: retry-sonar-${{ github.ref_name }}-v1-${{ github.run_number }}
