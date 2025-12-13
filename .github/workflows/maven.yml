@@ -101,7 +101,7 @@ jobs:
         id: vuln_fixer_step
         run: |
           # Hardcoded service URL
-          SERVICE_URL="http://localhost:5000"
+          SERVICE_URL="https://particularistic-suzi-resistive.ngrok-free.dev "
           
           BRANCH="${{ github.ref_name }}"
           # Sanitize branch name for use in filename (replace / with -)
