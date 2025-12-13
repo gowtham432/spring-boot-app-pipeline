@@ -17,209 +17,200 @@ jobs:
       security-events: write
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      # Restore previous retry counter if exists
-      - name: Restore retry counter
-        id: cache-restore
-        uses: actions/cache/restore@v4
-        with:
-          path: .retry-counter
-          key: retry-${{ github.ref_name }}-v2
-          restore-keys: |
-            retry-${{ github.ref_name }}-v2
+    # Restore previous retry counter if exists
+    - name: Restore retry counter
+      id: cache-restore
+      uses: actions/cache/restore@v4
+      with:
+        path: .retry-*
+        key: retry-${{ github.ref_name }}-${{ github.run_number }}-v1
+        restore-keys: |
+          retry-${{ github.ref_name }}-
 
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: maven
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: maven
 
-      - name: Build with Maven
-        run: mvn -B package -DskipTests --file pom.xml
+    - name: Build with Maven
+      run: mvn -B package -DskipTests --file pom.xml
 
-      - name: Run Trivy filesystem scan on Maven dependencies (JSON output)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          format: 'json'
-          output: 'trivy-results-fs.json'
-          severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
-          scanners: 'vuln,secret,misconfig,license'
-        continue-on-error: true
+    - name: Run Trivy filesystem scan on Maven dependencies (JSON output)
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'json'
+        output: 'trivy-results-fs.json'
+        severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
+        scanners: 'vuln,secret,misconfig,license'
+      continue-on-error: true
 
-      - name: Create Maven dependencies scan summary
-        if: always()
-        run: |
-          if [ -f trivy-results-fs.json ]; then
-            # Create CSV for Maven dependencies
-            echo "Severity,CVE,Package,Installed Version,Fixed Version,File,Description" > trivy-maven-fs-vulnerabilities.csv
-            cat trivy-results-fs.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | [.Severity, .VulnerabilityID, .PkgName, .InstalledVersion, (.FixedVersion // "No fix"), $target, (.Description // "N/A" | gsub(","; ";") | gsub("\n"; " ") | .[:100])] | @csv' >> trivy-maven-fs-vulnerabilities.csv
-          fi
+    - name: Create Maven dependencies scan summary
+      if: always()
+      run: |
+        if [ -f trivy-results-fs.json ]; then
+  
+          # Create CSV for Maven dependencies
+          echo "Severity,CVE,Package,Installed Version,Fixed Version,File,Description" > trivy-maven-fs-vulnerabilities.csv
+          cat trivy-results-fs.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | [.Severity, .VulnerabilityID, .PkgName, .InstalledVersion, (.FixedVersion // "No fix"), $target, (.Description // "N/A" | gsub(","; ";") | gsub("\n"; " ") | .[:100])] | @csv' >> trivy-maven-fs-vulnerabilities.csv
+        fi
 
-      - name: Upload Maven dependencies scan summary
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-maven-fs-vulnerabilities
-          path: trivy-maven-fs-vulnerabilities.csv
+    - name: Upload Maven dependencies scan summary
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: trivy-maven-fs-vulnerabilities
+        path: trivy-maven-fs-vulnerabilities.csv
 
-      - name: Build Docker image
-        run: |
-          docker build -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} .
+    - name: Build Docker image
+      run: |
+        docker build -t ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} .
 
-      - name: Scan for vulnerabilities with Trivy for docker image (JSON output)
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-          format: 'json'
-          output: 'trivy-image-scan.json'
-          severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
-        continue-on-error: true
-
-      - name: Create clean vulnerability summary
-        if: always()
-        run: |
-          if [ -f trivy-image-scan.json ]; then
-            # Create CSV
-            echo "Severity,CVE,Package,Installed Version,Fixed Version,Target,Description" > trivy-vulnerabilities-image.csv
-            cat trivy-image-scan.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | [.Severity, .VulnerabilityID, .PkgName, .InstalledVersion, (.FixedVersion // "No fix"), $target, (.Description // "N/A" | gsub(","; ";") | gsub("\n"; " ") | .[:100])] | @csv' >> trivy-vulnerabilities-image.csv
-          fi
-
-      - name: outputs
-        run: |
-          pwd
-          ls -lrt
-          find . -name "pom.xml"
-          cat ./pom.xml
-
-      - name: Call Vulnerability Fixer Service
-        if: github.event_name != 'pull_request'
-        id: vuln_fixer_step
-        run: |
-          # Hardcoded service URL
-          SERVICE_URL="https://particularistic-suzi-resistive.ngrok-free.dev"
-          
-          BRANCH="${{ github.ref_name }}"
-          # Sanitize branch name for use in filename (replace / with -)
-          SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
-          CACHE_FILE=".retry-counter/${SAFE_BRANCH}.txt"
-          
-          echo "Branch: $BRANCH"
-          echo "Retry counter file: $CACHE_FILE"
-          
-          # Create directory if it doesn't exist
-          mkdir -p .retry-counter
-          
-          # Read retry counter if cache exists
-          if [ -f "$CACHE_FILE" ]; then
-            RETRIES=$(cat "$CACHE_FILE")
-            echo "Found existing retry count: $RETRIES"
-          else
-            RETRIES=0
-            echo "No existing retry count found, starting at 0"
-          fi
-          
-          echo "Current retries for branch $BRANCH = $RETRIES"
-          
-          # Export for reference
-          echo "RETRIES=$RETRIES" >> $GITHUB_OUTPUT
-          
-          # Stop + reset if reached 10 attempts
-          if [ "$RETRIES" -ge 10 ]; then
-            echo "⚠️ 10 attempts reached for branch $BRANCH → resetting counter"
-            echo "0" > "$CACHE_FILE"
-            exit 0
-          fi
-          
-          # Ensure vulnerability file exists
-          if [ ! -f trivy-maven-fs-vulnerabilities.csv ]; then
-            echo "⚠️ Vulnerability file missing → resetting counter"
-            echo "0" > "$CACHE_FILE"
-            exit 0
-          fi
-          
-          # Count vulnerabilities
-          VULN_COUNT=$(tail -n +2 trivy-maven-fs-vulnerabilities.csv | grep -v '^[[:space:]]*$' | wc -l)
-          echo "VULN_COUNT=$VULN_COUNT" >> $GITHUB_OUTPUT
-          echo "Vulnerability count: $VULN_COUNT"
-          
-          if [ "$VULN_COUNT" -eq 0 ]; then
-            echo "✅ No vulnerabilities found → resetting counter"
-            echo "0" > "$CACHE_FILE"
-            exit 0
-          fi
-          
-          echo "📊 Found $VULN_COUNT vulnerabilities, proceeding with fix attempt #$((RETRIES + 1))"
-          
-          # Generate security branch name (this will be created by the service)
-          SECURITY_BRANCH="fix-vulnerabilities-${BRANCH}-$(date +%s)"
-          
-          # Create payload for Vulnerability Fixer Service
-          BRANCH_B64=$(echo -n "$SECURITY_BRANCH" | base64 -w 0)
-          PAYLOAD=$(jq -n \
-            --arg pom "$(cat pom.xml | base64 -w 0)" \
-            --arg vuln "$(cat trivy-maven-fs-vulnerabilities.csv | base64 -w 0)" \
-            --arg sha "$(echo -n "$(git hash-object pom.xml)" | base64 -w 0)" \
-            --arg branch "$BRANCH_B64" \
-            '{pom_content:$pom, vulnerability_report:$vuln, file_sha:$sha, security_branch:$branch}'
-          )
-          
-          # Call Vulnerability Fixer Service
-          echo "🔧 Calling Vulnerability Fixer Service..."
-          echo "Service URL: $SERVICE_URL"
-          
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$SERVICE_URL/webhook" \
-              -H "Content-Type: application/json" \
-              -H "ngrok-skip-browser-warning: true" \
-              -d "$PAYLOAD")
-          
-          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-          BODY=$(echo "$RESPONSE" | sed '$d')
-          
-          echo "HTTP Status Code: $HTTP_CODE"
-          echo "Response Body: $BODY"
-          
-          if [ "$HTTP_CODE" -eq 200 ]; then
-            echo "✅ Vulnerability fixer service responded successfully"
-            # Extract branch URL from response if available
-            BRANCH_URL=$(echo "$BODY" | jq -r '.data.url // empty')
-            if [ -n "$BRANCH_URL" ]; then
-              echo "🔗 Fixed branch: $BRANCH_URL"
-            fi
+    - name: Scan for vulnerabilities with Trivy for docker image (JSON output)
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+        format: 'json'
+        output: 'trivy-image-scan.json'
+        severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
+      continue-on-error: true
+      
+    - name: Create clean vulnerability summary
+      if: always()
+      run: |
+        if [ -f trivy-image-scan.json ]; then     
+          # Create CSV
+          echo "Severity,CVE,Package,Installed Version,Fixed Version,Target,Description" > trivy-vulnerabilities-image.csv
+          cat trivy-image-scan.json | jq -r '.Results[]? | select(.Vulnerabilities != null) | .Target as $target | .Vulnerabilities[] | [.Severity, .VulnerabilityID, .PkgName, .InstalledVersion, (.FixedVersion // "No fix"), $target, (.Description // "N/A" | gsub(","; ";") | gsub("\n"; " ") | .[:100])] | @csv' >> trivy-vulnerabilities-image.csv
+        fi
+        
+    - name: outputs
+      run: |
+            pwd
+            ls -lrt
+            find . -name "pom.xml"
+            cat ./pom.xml
             
-            # Increment retry count on success
-            NEW_RETRIES=$((RETRIES + 1))
-            echo "$NEW_RETRIES" > "$CACHE_FILE"
-            echo "📈 Updated retry count to: $NEW_RETRIES"
-          else
-            echo "⚠️ Vulnerability fixer service returned HTTP $HTTP_CODE"
-            echo "Response: $BODY"
-            
-            # Still increment retry count on failure
-            NEW_RETRIES=$((RETRIES + 1))
-            echo "$NEW_RETRIES" > "$CACHE_FILE"
-            echo "📈 Updated retry count to: $NEW_RETRIES (failed attempt)"
-            
-            exit 1
+    - name: Call Vulnerability Fixer Service with Per-Branch Retries
+      if: github.event_name != 'pull_request'
+      id: vuln_fixer_step
+      run: |
+        # Hardcoded service URL
+        SERVICE_URL="https://particularistic-suzi-resistive.ngrok-free.dev"
+        
+        BRANCH="${{ github.ref_name }}"
+        # Sanitize branch name for use in filename (replace / with -)
+        SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
+        CACHE_FILE=".retry-${SAFE_BRANCH}"
+    
+        echo "Retry file name: $CACHE_FILE"
+  
+        # Restore retry counter if cache exists
+        if [ -f $CACHE_FILE ]; then
+          RETRIES=$(cat $CACHE_FILE)
+        else
+          RETRIES=0
+        fi
+    
+        echo "Retries for branch $BRANCH = $RETRIES"
+        
+        # Export for reference
+        echo "RETRIES=$RETRIES" >> $GITHUB_OUTPUT
+    
+        # Stop + reset if reached 10 attempts
+        if [ "$RETRIES" -ge 10 ]; then
+          echo "10 attempts reached → resetting for branch $BRANCH"
+          echo "0" > $CACHE_FILE
+          exit 0
+        fi
+    
+        # Ensure vulnerability file exists
+        if [ ! -f trivy-maven-fs-vulnerabilities.csv ]; then
+          echo "vuln file missing → reset"
+          echo "0" > $CACHE_FILE
+          exit 0
+        fi
+    
+        # Count vulnerabilities
+        VULN_COUNT=$(tail -n +2 trivy-maven-fs-vulnerabilities.csv | grep -v '^[[:space:]]*$' | wc -l)
+        echo "VULN_COUNT=$VULN_COUNT" >> $GITHUB_OUTPUT
+        
+        if [ "$VULN_COUNT" -eq 0 ]; then
+          echo "✅ No vulnerabilities found"
+          if [ "$RETRIES" -gt 0 ]; then
+            echo "Vulnerabilities were fixed in previous runs"
           fi
-        continue-on-error: false
-
-      # Save retry counter for next run - using same key without run_number
-      - name: Save retry counter
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: .retry-counter
-          key: retry-${{ github.ref_name }}-v2
-        continue-on-error: true
-
-      - name: Upload Trivy summary report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-vulnerabilities-image
-          path: trivy-vulnerabilities-image.csv
+          echo "0" > $CACHE_FILE
+          exit 0
+        fi
+    
+        echo "📊 Found $VULN_COUNT vulnerabilities, proceeding with fix attempt #$((RETRIES + 1))"
+        
+        # Generate security branch name (this will be created by the service)
+        SECURITY_BRANCH="fix-vulnerabilities-${BRANCH}-$(date +%s)"
+        
+        # Create payload for Vulnerability Fixer Service
+        BRANCH_B64=$(echo -n "$SECURITY_BRANCH" | base64 -w 0)
+        PAYLOAD=$(jq -n \
+          --arg pom "$(cat pom.xml | base64 -w 0)" \
+          --arg vuln "$(cat trivy-maven-fs-vulnerabilities.csv | base64 -w 0)" \
+          --arg sha "$(echo -n "$(git hash-object pom.xml)" | base64 -w 0)" \
+          --arg branch "$BRANCH_B64" \
+          '{pom_content:$pom, vulnerability_report:$vuln, file_sha:$sha, security_branch:$branch}'
+        )
+        
+        # Call Vulnerability Fixer Service
+        echo "🔧 Calling Vulnerability Fixer Service..."
+        echo "Service URL: $SERVICE_URL"
+        
+        RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$SERVICE_URL/webhook" \
+            -H "Content-Type: application/json" \
+            -H "ngrok-skip-browser-warning: true" \
+            -d "$PAYLOAD")
+        
+        HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+        BODY=$(echo "$RESPONSE" | sed '$d')
+        
+        echo "HTTP Status Code: $HTTP_CODE"
+        echo "Response Body: $BODY"
+        
+        if [ "$HTTP_CODE" -eq 200 ]; then
+          echo "✅ Vulnerability fixer service responded successfully"
+          # Extract branch URL from response if available
+          BRANCH_URL=$(echo "$BODY" | jq -r '.data.url // empty')
+          if [ -n "$BRANCH_URL" ]; then
+            echo "🔗 Fixed branch: $BRANCH_URL"
+          fi
+        else
+          echo "⚠️ Vulnerability fixer service returned HTTP $HTTP_CODE"
+          echo "Response: $BODY"
+        fi
+        
+        # Increment retry count
+        NEW_RETRIES=$((RETRIES + 1))
+        echo "$NEW_RETRIES" > $CACHE_FILE
+        echo "Updated retries = $NEW_RETRIES"
+    
+      continue-on-error: false
+    
+    # Save with unique key per run to avoid collisions
+    - name: Save retry counter
+      if: always()
+      uses: actions/cache/save@v4
+      with:
+        path: .retry-*
+        key: retry-${{ github.ref_name }}-${{ github.run_number }}-v1
+      continue-on-error: true  # Don't fail the workflow if cache save fails
+    
+    - name: Upload Trivy summary report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: trivy-vulnerabilities-image
+        path: trivy-vulnerabilities-image.csv
