@@ -25,10 +25,10 @@ jobs:
         id: cache-restore
         uses: actions/cache/restore@v4
         with:
-          path: .retry-*
-          key: retry-${{ github.ref_name }}-${{ github.run_number }}-v1
+          path: .retry-counter
+          key: retry-${{ github.ref_name }}-v2
           restore-keys: |
-            retry-${{ github.ref_name }}-
+            retry-${{ github.ref_name }}-v2
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -106,45 +106,54 @@ jobs:
           BRANCH="${{ github.ref_name }}"
           # Sanitize branch name for use in filename (replace / with -)
           SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
-          CACHE_FILE=".retry-${SAFE_BRANCH}"
+          CACHE_FILE=".retry-counter/${SAFE_BRANCH}.txt"
           
-          echo "Retry file name: $CACHE_FILE"
+          echo "Branch: $BRANCH"
+          echo "Retry counter file: $CACHE_FILE"
           
-          # Restore retry counter if cache exists
-          if [ -f $CACHE_FILE ]; then
-            RETRIES=$(cat $CACHE_FILE)
+          # Create directory if it doesn't exist
+          mkdir -p .retry-counter
+          
+          # Read retry counter if cache exists
+          if [ -f "$CACHE_FILE" ]; then
+            RETRIES=$(cat "$CACHE_FILE")
+            echo "Found existing retry count: $RETRIES"
           else
             RETRIES=0
+            echo "No existing retry count found, starting at 0"
           fi
           
-          echo "Retries for branch $BRANCH = $RETRIES"
+          echo "Current retries for branch $BRANCH = $RETRIES"
           
-          # Export for next step
+          # Export for reference
           echo "RETRIES=$RETRIES" >> $GITHUB_OUTPUT
           
           # Stop + reset if reached 10 attempts
           if [ "$RETRIES" -ge 10 ]; then
-            echo "10 attempts reached → resetting for branch $BRANCH"
-            echo "0" > $CACHE_FILE
+            echo "⚠️ 10 attempts reached for branch $BRANCH → resetting counter"
+            echo "0" > "$CACHE_FILE"
             exit 0
           fi
           
           # Ensure vulnerability file exists
           if [ ! -f trivy-maven-fs-vulnerabilities.csv ]; then
-            echo "vuln file missing → reset"
-            echo "0" > $CACHE_FILE
+            echo "⚠️ Vulnerability file missing → resetting counter"
+            echo "0" > "$CACHE_FILE"
             exit 0
           fi
           
           # Count vulnerabilities
           VULN_COUNT=$(tail -n +2 trivy-maven-fs-vulnerabilities.csv | grep -v '^[[:space:]]*$' | wc -l)
           echo "VULN_COUNT=$VULN_COUNT" >> $GITHUB_OUTPUT
+          echo "Vulnerability count: $VULN_COUNT"
           
           if [ "$VULN_COUNT" -eq 0 ]; then
-            echo "no vulns found"
-            echo "0" > $CACHE_FILE
+            echo "✅ No vulnerabilities found → resetting counter"
+            echo "0" > "$CACHE_FILE"
             exit 0
           fi
+          
+          echo "📊 Found $VULN_COUNT vulnerabilities, proceeding with fix attempt #$((RETRIES + 1))"
           
           # Generate security branch name (this will be created by the service)
           SECURITY_BRANCH="fix-vulnerabilities-${BRANCH}-$(date +%s)"
@@ -160,7 +169,7 @@ jobs:
           )
           
           # Call Vulnerability Fixer Service
-          echo "Calling Vulnerability Fixer Service..."
+          echo "🔧 Calling Vulnerability Fixer Service..."
           echo "Service URL: $SERVICE_URL"
           
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$SERVICE_URL/webhook" \
@@ -181,26 +190,32 @@ jobs:
             if [ -n "$BRANCH_URL" ]; then
               echo "🔗 Fixed branch: $BRANCH_URL"
             fi
+            
+            # Increment retry count on success
+            NEW_RETRIES=$((RETRIES + 1))
+            echo "$NEW_RETRIES" > "$CACHE_FILE"
+            echo "📈 Updated retry count to: $NEW_RETRIES"
           else
             echo "⚠️ Vulnerability fixer service returned HTTP $HTTP_CODE"
             echo "Response: $BODY"
+            
+            # Still increment retry count on failure
+            NEW_RETRIES=$((RETRIES + 1))
+            echo "$NEW_RETRIES" > "$CACHE_FILE"
+            echo "📈 Updated retry count to: $NEW_RETRIES (failed attempt)"
+            
             exit 1
           fi
-          
-          # Increment retry count
-          NEW_RETRIES=$((RETRIES + 1))
-          echo "$NEW_RETRIES" > $CACHE_FILE
-          echo "Updated retries = $NEW_RETRIES"
         continue-on-error: false
 
-      # Save with unique key per run to avoid collisions
+      # Save retry counter for next run - using same key without run_number
       - name: Save retry counter
         if: always()
         uses: actions/cache/save@v4
         with:
-          path: .retry-*
-          key: retry-${{ github.ref_name }}-${{ github.run_number }}-v1
-        continue-on-error: true  # Don't fail the workflow if cache save fails
+          path: .retry-counter
+          key: retry-${{ github.ref_name }}-v2
+        continue-on-error: true
 
       - name: Upload Trivy summary report
         if: always()
