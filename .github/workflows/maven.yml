@@ -13,22 +13,14 @@ jobs:
   build-and-scan:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       security-events: write
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-
-    # Restore previous retry counter if exists
-    - name: Restore retry counter
-      id: cache-restore
-      uses: actions/cache/restore@v4
       with:
-        path: .retry-*
-        key: retry-${{ github.ref_name }}-${{ github.run_number }}-v1
-        restore-keys: |
-          retry-${{ github.ref_name }}-
+        fetch-depth: 0  # Fetch all history to read retry markers
 
     - name: Set up JDK 21
       uses: actions/setup-java@v4
@@ -105,48 +97,66 @@ jobs:
         SERVICE_URL="https://particularistic-suzi-resistive.ngrok-free.dev"
         
         BRANCH="${{ github.ref_name }}"
-        # Sanitize branch name for use in filename (replace / with -)
-        SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
-        CACHE_FILE=".retry-${SAFE_BRANCH}"
-    
-        echo "Retry file name: $CACHE_FILE"
-  
-        # Restore retry counter if cache exists
-        if [ -f $CACHE_FILE ]; then
-          RETRIES=$(cat $CACHE_FILE)
+        RETRY_DIR=".github/retry-counters"
+        RETRY_FILE="${RETRY_DIR}/${BRANCH}.txt"
+        
+        echo "Branch: $BRANCH"
+        echo "Retry counter file: $RETRY_FILE"
+        
+        # Create directory if it doesn't exist
+        mkdir -p "$RETRY_DIR"
+        
+        # Read retry counter from committed file
+        if [ -f "$RETRY_FILE" ]; then
+          RETRIES=$(cat "$RETRY_FILE")
+          echo "Found existing retry count in repo: $RETRIES"
         else
           RETRIES=0
+          echo "No existing retry count found, starting at 0"
         fi
     
-        echo "Retries for branch $BRANCH = $RETRIES"
+        echo "Current retries for branch $BRANCH = $RETRIES"
         
         # Export for reference
         echo "RETRIES=$RETRIES" >> $GITHUB_OUTPUT
     
         # Stop + reset if reached 10 attempts
         if [ "$RETRIES" -ge 10 ]; then
-          echo "10 attempts reached → resetting for branch $BRANCH"
-          echo "0" > $CACHE_FILE
+          echo "⚠️ 10 attempts reached for branch $BRANCH → resetting counter"
+          echo "0" > "$RETRY_FILE"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$RETRY_FILE"
+          git commit -m "Reset retry counter for $BRANCH [skip ci]" || true
+          git push origin HEAD:${{ github.ref_name }} || true
           exit 0
         fi
     
         # Ensure vulnerability file exists
         if [ ! -f trivy-maven-fs-vulnerabilities.csv ]; then
-          echo "vuln file missing → reset"
-          echo "0" > $CACHE_FILE
+          echo "⚠️ Vulnerability file missing → resetting counter"
+          echo "0" > "$RETRY_FILE"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$RETRY_FILE"
+          git commit -m "Reset retry counter for $BRANCH (no vuln file) [skip ci]" || true
+          git push origin HEAD:${{ github.ref_name }} || true
           exit 0
         fi
     
         # Count vulnerabilities
         VULN_COUNT=$(tail -n +2 trivy-maven-fs-vulnerabilities.csv | grep -v '^[[:space:]]*$' | wc -l)
         echo "VULN_COUNT=$VULN_COUNT" >> $GITHUB_OUTPUT
+        echo "Vulnerability count: $VULN_COUNT"
         
         if [ "$VULN_COUNT" -eq 0 ]; then
-          echo "✅ No vulnerabilities found"
-          if [ "$RETRIES" -gt 0 ]; then
-            echo "Vulnerabilities were fixed in previous runs"
-          fi
-          echo "0" > $CACHE_FILE
+          echo "✅ No vulnerabilities found → resetting counter"
+          echo "0" > "$RETRY_FILE"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$RETRY_FILE"
+          git commit -m "Reset retry counter for $BRANCH (vulnerabilities fixed) [skip ci]" || true
+          git push origin HEAD:${{ github.ref_name }} || true
           exit 0
         fi
     
@@ -192,21 +202,19 @@ jobs:
           echo "Response: $BODY"
         fi
         
-        # Increment retry count
+        # Increment retry count and commit to repo
         NEW_RETRIES=$((RETRIES + 1))
-        echo "$NEW_RETRIES" > $CACHE_FILE
-        echo "Updated retries = $NEW_RETRIES"
+        echo "$NEW_RETRIES" > "$RETRY_FILE"
+        echo "📈 Updated retry count to: $NEW_RETRIES"
+        
+        # Commit the updated retry counter
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add "$RETRY_FILE"
+        git commit -m "Update retry counter for $BRANCH to $NEW_RETRIES [skip ci]"
+        git push origin HEAD:${{ github.ref_name }}
     
       continue-on-error: false
-    
-    # Save with unique key per run to avoid collisions
-    - name: Save retry counter
-      if: always()
-      uses: actions/cache/save@v4
-      with:
-        path: .retry-*
-        key: retry-${{ github.ref_name }}-${{ github.run_number }}-v1
-      continue-on-error: true  # Don't fail the workflow if cache save fails
     
     - name: Upload Trivy summary report
       if: always()
