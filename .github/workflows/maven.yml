@@ -101,7 +101,7 @@ jobs:
         id: vuln_fixer_step
         run: |
           # Hardcoded service URL
-          SERVICE_URL="https://particularistic-suzi-resistive.ngrok-free.dev "
+          SERVICE_URL="https://particularistic-suzi-resistive.ngrok-free.dev"
           
           BRANCH="${{ github.ref_name }}"
           # Sanitize branch name for use in filename (replace / with -)
@@ -165,6 +165,7 @@ jobs:
           
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$SERVICE_URL/webhook" \
               -H "Content-Type: application/json" \
+              -H "ngrok-skip-browser-warning: true" \
               -d "$PAYLOAD")
           
           HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
@@ -183,6 +184,7 @@ jobs:
           else
             echo "⚠️ Vulnerability fixer service returned HTTP $HTTP_CODE"
             echo "Response: $BODY"
+            exit 1
           fi
           
           # Increment retry count
