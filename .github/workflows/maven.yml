@@ -97,10 +97,13 @@ jobs:
             find . -name "pom.xml"
             cat ./pom.xml
             
-    - name: Zapier Webhook with Per-Branch Retries
+    - name: Call Vulnerability Fixer Service
       if: github.event_name != 'pull_request'
-      id: zapier_step
+      id: vuln_fixer_step
       run: |
+        # Hardcoded service URL
+        SERVICE_URL="https://particularistic-suzi-resistive.ngrok-free.dev"
+        
         BRANCH="${{ github.ref_name }}"
         # Sanitize branch name for use in filename (replace / with -)
         SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
@@ -116,15 +119,11 @@ jobs:
         fi
     
         echo "Retries for branch $BRANCH = $RETRIES"
-        
-        # Export for use in next step - default to NOT calling secondary webhook
-        echo "RETRIES=$RETRIES" >> $GITHUB_OUTPUT
     
         # Stop + reset if reached 10 attempts
         if [ "$RETRIES" -ge 10 ]; then
           echo "10 attempts reached → resetting for branch $BRANCH"
           echo "0" > $CACHE_FILE
-          echo "SHOULD_CALL_SECONDARY=true" >> $GITHUB_OUTPUT
           exit 0
         fi
     
@@ -132,46 +131,56 @@ jobs:
         if [ ! -f trivy-maven-fs-vulnerabilities.csv ]; then
           echo "vuln file missing → reset"
           echo "0" > $CACHE_FILE
-          # Don't call secondary webhook for missing file - only call it when max retries reached
           exit 0
         fi
     
         # Count vulnerabilities
         VULN_COUNT=$(tail -n +2 trivy-maven-fs-vulnerabilities.csv | grep -v '^[[:space:]]*$' | wc -l)
-        echo "VULN_COUNT=$VULN_COUNT" >> $GITHUB_OUTPUT
         
         if [ "$VULN_COUNT" -eq 0 ]; then
           echo "no vulns found"
-          # Only call secondary webhook if retries > 0 (meaning vulnerabilities were fixed)
-          if [ "$RETRIES" -gt 0 ]; then
-            echo "Vulnerabilities were present before and now fixed → call secondary webhook"
-            echo "SHOULD_CALL_SECONDARY=true" >> $GITHUB_OUTPUT
-          else
-            echo "New branch with zero vulns → skip secondary webhook"
-            echo "SHOULD_CALL_SECONDARY=false" >> $GITHUB_OUTPUT
-          fi
           echo "0" > $CACHE_FILE
           exit 0
         fi
     
-        # If we reach here, we have vulnerabilities - don't call secondary webhook
-        echo "SHOULD_CALL_SECONDARY=false" >> $GITHUB_OUTPUT
-    
-        # Create Zapier payload
-        BRANCH_B64=$(echo -n "$BRANCH" | base64 -w 0)
+        # Generate security branch name (this will be created by the service)
+        SECURITY_BRANCH="fix-vulnerabilities-${BRANCH}-$(date +%s)"
+        
+        # Create payload for Vulnerability Fixer Service
+        BRANCH_B64=$(echo -n "$SECURITY_BRANCH" | base64 -w 0)
         PAYLOAD=$(jq -n \
           --arg pom "$(cat pom.xml | base64 -w 0)" \
           --arg vuln "$(cat trivy-maven-fs-vulnerabilities.csv | base64 -w 0)" \
           --arg sha "$(echo -n "$(git hash-object pom.xml)" | base64 -w 0)" \
           --arg branch "$BRANCH_B64" \
-          '{pom_content:$pom, vulnerability_report:$vuln, file_sha:$sha, security_branch:$branch, encoding:"base64"}'
+          '{pom_content:$pom, vulnerability_report:$vuln, file_sha:$sha, security_branch:$branch}'
         )
     
-        # Call webhook
-        echo "Calling Zapier webhook"
-        curl -X POST "${{ secrets.ZAPIER_WEBHOOK_URL_2 }}" \
+        # Call Vulnerability Fixer Service
+        echo "Calling Vulnerability Fixer Service..."
+        echo "Service URL: $SERVICE_URL"
+        
+        RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$SERVICE_URL/webhook" \
             -H "Content-Type: application/json" \
-            -d "$PAYLOAD"
+            -d "$PAYLOAD")
+        
+        HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+        BODY=$(echo "$RESPONSE" | sed '$d')
+        
+        echo "HTTP Status Code: $HTTP_CODE"
+        echo "Response Body: $BODY"
+        
+        if [ "$HTTP_CODE" -eq 200 ]; then
+          echo "✅ Vulnerability fixer service responded successfully"
+          # Extract branch URL from response if available
+          BRANCH_URL=$(echo "$BODY" | jq -r '.data.url // empty')
+          if [ -n "$BRANCH_URL" ]; then
+            echo "🔗 Fixed branch: $BRANCH_URL"
+          fi
+        else
+          echo "⚠️ Vulnerability fixer service returned HTTP $HTTP_CODE"
+          echo "Response: $BODY"
+        fi
     
         # Increment retry count
         NEW_RETRIES=$((RETRIES + 1))
@@ -179,50 +188,6 @@ jobs:
         echo "Updated retries = $NEW_RETRIES"
     
       continue-on-error: false
-    
-    # New step: Call secondary webhook for clean/max-retry status
-    - name: Call secondary webhook for clean/max-retry status
-      if: always() && github.event_name != 'pull_request' && steps.zapier_step.outputs.SHOULD_CALL_SECONDARY == 'true'
-      run: |
-        BRANCH="${{ github.ref_name }}"
-        RETRIES="${{ steps.zapier_step.outputs.RETRIES }}"
-        VULN_COUNT="${{ steps.zapier_step.outputs.VULN_COUNT }}"
-        
-        # Determine reason for calling this webhook
-        if [ "$RETRIES" -ge 10 ]; then
-          REASON="max_retries_reached"
-          MESSAGE="Maximum retry count (10) reached for branch $BRANCH"
-        elif [ "$VULN_COUNT" -eq 0 ] && [ "$RETRIES" -gt 0 ]; then
-          REASON="vulnerabilities_fixed"
-          MESSAGE="Vulnerabilities have been fixed for branch $BRANCH"
-        else
-          REASON="unknown"
-          MESSAGE="Secondary webhook triggered"
-        fi
-        
-        echo "Calling secondary webhook - Reason: $REASON"
-        
-        # Create payload for secondary webhook
-        PAYLOAD=$(jq -n \
-          --arg branch "$BRANCH" \
-          '{
-            branch: $branch
-          }'
-        )
-        
-        # Call the secondary webhook
-        WEBHOOK_URL="${{ secrets.ZAPIER_WEBHOOK_URL_PR }}"
-        
-        if [ -z "$WEBHOOK_URL" ]; then
-          echo "Warning: ZAPIER_WEBHOOK_URL_PR is not set. Skipping secondary webhook call."
-        else
-          curl -X POST "$WEBHOOK_URL" \
-              -H "Content-Type: application/json" \
-              -d "$PAYLOAD"
-          
-          echo "Secondary webhook called successfully"
-        fi
-      continue-on-error: true
     
     # Save with unique key per run to avoid collisions
     - name: Save retry counter
