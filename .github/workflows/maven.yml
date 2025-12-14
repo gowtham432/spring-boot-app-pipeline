@@ -131,10 +131,43 @@ jobs:
         # Export for use in next step
         echo "RETRIES=$RETRIES" >> $GITHUB_OUTPUT
     
-        # Stop + reset if reached 10 attempts
+        # Stop if reached 10 attempts and create PR
         if [ "$RETRIES" -ge 10 ]; then
-          echo "⛔ 10 attempts reached → resetting for branch $BRANCH"
-          echo "0" > "$CACHE_FILE"
+          echo "⛔ 10 attempts reached → creating PR for branch $BRANCH"
+          
+          echo "📝 Creating PR from $BRANCH to master"
+          
+          # Create PR using GitHub API
+          PR_PAYLOAD=$(jq -n \
+            --arg source "$BRANCH" \
+            --arg target "master" \
+            --arg title "Fix security vulnerabilities in dependencies" \
+            --arg desc "This PR updates vulnerable dependencies based on security scan results." \
+            '{source_branch:$source, target_branch:$target, title:$title, description:$desc}'
+          )
+          
+          PR_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$SERVICE_URL/create-pr" \
+              -H "Content-Type: application/json" \
+              -H "ngrok-skip-browser-warning: true" \
+              -d "$PR_PAYLOAD")
+          
+          PR_HTTP_CODE=$(echo "$PR_RESPONSE" | tail -n1)
+          PR_BODY=$(echo "$PR_RESPONSE" | sed '$d')
+          
+          echo "PR Creation HTTP Status: $PR_HTTP_CODE"
+          echo "PR Creation Response: $PR_BODY"
+          
+          if [ "$PR_HTTP_CODE" -eq 200 ]; then
+            echo "✅ Pull request created successfully"
+            PR_URL=$(echo "$PR_BODY" | jq -r '.data.url // empty')
+            if [ -n "$PR_URL" ]; then
+              echo "🔗 PR URL: $PR_URL"
+            fi
+          else
+            echo "⚠️ Failed to create PR - HTTP $PR_HTTP_CODE"
+          fi
+          
+          # Do NOT reset counter - keep it at 10 to prevent further fix attempts
           exit 0
         fi
     
