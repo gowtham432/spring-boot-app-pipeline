@@ -19,16 +19,11 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
-
-    # Restore previous retry counter if exists
-    - name: Restore retry counter
-      id: cache-restore
-      uses: actions/cache/restore@v4
       with:
-        path: .retry-*
-        key: retry-${{ github.ref_name }}-${{ github.run_number }}-v1
-        restore-keys: |
-          retry-${{ github.ref_name }}-
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    # Remove cache restore step - not needed anymore
 
     - name: Set up JDK 21
       uses: actions/setup-java@v4
@@ -109,46 +104,55 @@ jobs:
         SAFE_BRANCH=$(echo "$BRANCH" | tr '/' '-')
         CACHE_FILE=".retry-${SAFE_BRANCH}"
     
+        echo "========================================="
+        echo "Branch: $BRANCH"
         echo "Retry file name: $CACHE_FILE"
+        echo "========================================="
   
         # Restore retry counter if cache exists
-        if [ -f $CACHE_FILE ]; then
-          RETRIES=$(cat $CACHE_FILE)
+        if [ -f "$CACHE_FILE" ]; then
+          RETRIES=$(cat "$CACHE_FILE")
+          echo "✅ Found existing retry file with count: $RETRIES"
         else
           RETRIES=0
+          echo "⚠️ No retry file found, starting at: $RETRIES"
         fi
     
-        echo "Retries for branch $BRANCH = $RETRIES"
+        echo "Current retries for branch $BRANCH = $RETRIES"
         
         # Export for use in next step
         echo "RETRIES=$RETRIES" >> $GITHUB_OUTPUT
     
         # Stop + reset if reached 10 attempts
         if [ "$RETRIES" -ge 10 ]; then
-          echo "10 attempts reached → resetting for branch $BRANCH"
-          echo "0" > $CACHE_FILE
+          echo "⛔ 10 attempts reached → resetting for branch $BRANCH"
+          echo "0" > "$CACHE_FILE"
           exit 0
         fi
     
         # Ensure vulnerability file exists
         if [ ! -f trivy-maven-fs-vulnerabilities.csv ]; then
-          echo "vuln file missing → reset"
-          echo "0" > $CACHE_FILE
+          echo "⚠️ Vuln file missing → reset"
+          echo "0" > "$CACHE_FILE"
           exit 0
         fi
     
         # Count vulnerabilities
         VULN_COUNT=$(tail -n +2 trivy-maven-fs-vulnerabilities.csv | grep -v '^[[:space:]]*$' | wc -l)
         echo "VULN_COUNT=$VULN_COUNT" >> $GITHUB_OUTPUT
+        echo "📊 Vulnerability count: $VULN_COUNT"
         
         if [ "$VULN_COUNT" -eq 0 ]; then
-          echo "no vulns found"
-          echo "0" > $CACHE_FILE
+          echo "✅ No vulns found → reset"
+          echo "0" > "$CACHE_FILE"
           exit 0
         fi
     
+        echo "🔧 Proceeding with fix attempt #$((RETRIES + 1))..."
+        
         # Generate security branch name (this will be created by the service)
         SECURITY_BRANCH="fix-vulnerabilities-${BRANCH}-$(date +%s)"
+        echo "Security branch name: $SECURITY_BRANCH"
         
         # Create payload for Vulnerability Fixer Service
         BRANCH_B64=$(echo -n "$SECURITY_BRANCH" | base64 -w 0)
@@ -161,8 +165,10 @@ jobs:
         )
     
         # Call Vulnerability Fixer Service
+        echo "========================================="
         echo "Calling Vulnerability Fixer Service..."
         echo "Service URL: $SERVICE_URL"
+        echo "========================================="
         
         RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$SERVICE_URL/webhook" \
             -H "Content-Type: application/json" \
@@ -179,8 +185,10 @@ jobs:
           echo "✅ Vulnerability fixer service responded successfully"
           # Extract branch URL from response if available
           BRANCH_URL=$(echo "$BODY" | jq -r '.data.url // empty')
+          WAS_EXISTING=$(echo "$BODY" | jq -r '.data.wasExisting // false')
           if [ -n "$BRANCH_URL" ]; then
             echo "🔗 Fixed branch: $BRANCH_URL"
+            echo "📌 Was existing branch: $WAS_EXISTING"
           fi
         else
           echo "⚠️ Vulnerability fixer service returned HTTP $HTTP_CODE"
@@ -189,8 +197,19 @@ jobs:
     
         # Increment retry count
         NEW_RETRIES=$((RETRIES + 1))
-        echo "$NEW_RETRIES" > $CACHE_FILE
-        echo "Updated retries = $NEW_RETRIES"
+        echo "$NEW_RETRIES" > "$CACHE_FILE"
+        echo "========================================="
+        echo "📈 Updated retry count: $RETRIES → $NEW_RETRIES"
+        echo "💾 Saved to: $CACHE_FILE"
+        
+        # Verify the file was written
+        if [ -f "$CACHE_FILE" ]; then
+          VERIFY=$(cat "$CACHE_FILE")
+          echo "✅ Verified file contents: $VERIFY"
+        else
+          echo "❌ ERROR: Failed to write retry file!"
+        fi
+        echo "========================================="
     
       continue-on-error: false
     
